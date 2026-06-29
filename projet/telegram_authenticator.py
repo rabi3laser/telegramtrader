@@ -1,246 +1,265 @@
 #!/usr/bin/env python3
 """
 MODULE D'AUTHENTIFICATION TELEGRAM POUR STREAMLIT
-VERSION UNIVERSELLE - Compatible SaaS multi-utilisateurs
-Important: Chaque utilisateur saisit ses propres credentials Telegram
-- Aucun stockage de session dans le code
+Version SaaS simple : l'utilisateur entre juste son numero + code SMS
+Les credentials API sont geres par l'application (st.secrets)
 """
 import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
+from telethon.errors import SessionPasswordNeededError, PhoneCodeExpiredError, PhoneCodeInvalidError
 import streamlit as st
 
 
-# Titre de l'application
-APP_TITLE = "Pipeline Telegram Trader - SaaS Mode"
+def _get_app_credentials():
+    """
+    Recupere les credentials API de l'application (pas de l'utilisateur).
+    Configures dans les secrets Streamlit Cloud.
+    """
+    try:
+        api_id = int(st.secrets["telegram"]["api_id"])
+        api_hash = st.secrets["telegram"]["api_hash"]
+        return api_id, api_hash
+    except (KeyError, AttributeError):
+        # Fallback pour le developpement local
+        api_id = int(st.secrets.get("TELEGRAM_API_ID", 0))
+        api_hash = st.secrets.get("TELEGRAM_API_HASH", "")
+        if not api_id or not api_hash:
+            st.error("Configuration manquante: contactez l'administrateur")
+            st.stop()
+        return api_id, api_hash
 
 
 def init_auth_state():
-    """Initialise les variables de session si elles n'existent pas"""
-    if 'telegram_api_id' not in st.session_state:
-        st.session_state.telegram_api_id = ""
-    if 'telegram_api_hash' not in st.session_state:
-        st.session_state.telegram_api_hash = ""
-    if 'telegram_session' not in st.session_state:
-        st.session_state.telegram_session = ""
-    if 'telegram_logged_in' not in st.session_state:
-        st.session_state.telegram_logged_in = False
-    
+    defaults = {
+        'tg_logged_in': False,
+        'tg_phone': '',
+        'tg_session': '',
+        'tg_phone_hash': '',
+        'tg_awaiting_code': False,
+        'tg_user_name': '',
+        'tg_user_id': None,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
 
 def show_auth_page() -> bool:
     """
-    Affiche la page d'authentification pour la connexion Telegram
-    Retourne True si l'utilisateur est connecte, False sinon
+    Page de connexion Telegram simple.
+    L'utilisateur entre son numero de telephone et le code recu.
+    Retourne True si connecte, False sinon.
     """
-    
     init_auth_state()
-    st.markdown("---")
-    
-    # Titre de la page
-    st.write(APP_TITLE, unsafe_allow_html=True)
-    st.subheader("Etape 1: Connexion Telegram")
-    
-    # Message d'introduction
-    with st.container():
-        st.write("""
-        ## Informations importantes:
-        
-        1. **Ces credentials sont VOTRES** - Ils ne sont JAMAIS stockes sur nos serveurs
-        2. **La session est stockee UNIQUEMENT dans votre navigateur**
-        3. **Maintenant la configuration** - Vous devez saisir vos identifiants API Telegram
-        
-        **C'est parti, a vous d'agir !**
-        """)
-    
-    # Connexion
-    col_c1, col_c2 = st.columns(2)
-    
-    with col_c1:
-        st.subheader("Credentials Telegram")
-        api_id = st.text_input("API ID", value=st.session_state.get('telegram_api_id', ''), placeholder="Ex: 882423941", type="password")     
-        api_hash = st.text_input("API Hash", value=st.session_state.get('telegram_api_hash', ''), placeholder="Ex: 8d2a7c06a5484a2d359a4c7fc250b6a", type="password")
-    
-    with col_c2:
-        st.subheader("Session Telegram")
-        session_string = st.text_area("String Session (optionnel)", height=150, value=st.session_state.get('telegram_session', ''), help="Copiez-colliez votre session actuelle si vous en avez une")
-    
-    # Bouton de connexion
-    button_col1, button_col2 = st.columns(2)
-    
-    with button_col1:
-        if st.button("Option 1: Generer une session", type="primary", use_container=True):
-            generate_session()
-    
-    with button_col2:
-        if st.button("Option 2: Utiliser ma session existante", type="secondary", use_container=True):
-            use_existing_session()
-    
-    # Bouton de validation
-    st.markdown("---")
-    
-    if st.button("Valider la connexion", type="primary"):
-        validate_and_connect()
-    
-    # Afficher le statut
-    if st.session_state.get('telegram_logged_in', False):
-        st.success("Connexion etablie !")
+
+    # Deja connecte
+    if st.session_state.tg_logged_in:
+        name = st.session_state.get('tg_user_name', 'Utilisateur')
+        st.success(f"Connecte en tant que {name}")
+        col1, col2 = st.columns([3, 1])
+        with col2:
+            if st.button("Deconnexion", use_container_width=True):
+                _logout()
         return True
-    
+
+    # Logo et titre
+    st.markdown("<h2>Connexion a Telegram</h2>", unsafe_allow_html=True)
+
+    # -------------------------------------------------------
+    # ETAPE 1 : Entrer le numero de telephone
+    # -------------------------------------------------------
+    if not st.session_state.tg_awaiting_code:
+        st.write("Entrez votre numero de telephone Telegram pour recevoir un code de verification.")
+
+        phone = st.text_input(
+            "Numero de telephone",
+            value=st.session_state.tg_phone,
+            placeholder="+33612345678",
+            help="Format international: +33 pour la France, +1 pour les US..."
+        )
+
+        if st.button("Recevoir le code", type="primary", use_container_width=True):
+            if not phone.strip():
+                st.error("Veuillez saisir votre numero de telephone")
+            else:
+                _send_code(phone.strip())
+
+    # -------------------------------------------------------
+    # ETAPE 2 : Entrer le code recu
+    # -------------------------------------------------------
+    else:
+        phone = st.session_state.tg_phone
+        st.info(f"Un code a ete envoye sur Telegram au numero **{phone}**")
+        st.write("Ouvrez Telegram sur votre telephone et entrez le code recu :")
+
+        code = st.text_input(
+            "Code de verification",
+            placeholder="12345",
+            max_chars=6,
+            help="Le code envoyé par Telegram (5 chiffres)"
+        )
+
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Confirmer", type="primary", use_container_width=True):
+                if not code.strip():
+                    st.error("Veuillez entrer le code recu")
+                else:
+                    _verify_code(code.strip())
+        with col2:
+            if st.button("Changer de numero", use_container_width=True):
+                st.session_state.tg_awaiting_code = False
+                st.session_state.tg_phone_hash = ''
+                st.rerun()
+
     return False
 
 
-def generate_session():
-    """
-    Genere une nouvelle session Telegram (version simplifiee sans await direct)
-    """
-    try:
-        from telethon import TelegramClient
-        from telethon.sessions import StringSession
-        
-        # Verifier les credentials
-        api_id = st.session_state.get('telegram_api_id')
-        api_hash = st.session_state.get('telegram_api_hash')
-        
-        if not api_id or not api_hash:
-            st.error("Veuillez saisir vos identifiants API")
-            return
-        
-        # Afficher la generation en cours
-        st.info("Generation en cours... Veuillez patienter.")
-        
-        # Saisir le code de confirmation
-        code = st.text_input("Code de confirmation", type="password", help="Saisissez le code recu dans Telegram")
-        
-        if st.button("Verifier", type="primary"):
-            try:
-                # Creer une fonction async pour generer
-                async def _generate():
-                    client = TelegramClient(StringSession(), int(api_id), api_hash)
-                    async with client:
-                        await client.send_code(request='self')
-                        if code:
-                            await client.sign_in(code)
-                            session_string = client.session.save()
-                            return session_string
-                        return None
-                
-                # Executer la fonction async
-                result = asyncio.run(_generate())
-                
-                if result:
-                    st.session_state.telegram_session = result
-                    st.session_state.telegram_api_id = str(api_id)
-                    st.session_state.telegram_api_hash = api_hash
-                    st.success("Session generee avec succes !")
-                    st.rerun()
-                else:
-                    st.error("Code non fourni ou invalide")
-                    
-            except Exception as e:
-                st.error(f"Erreur: {str(e)}")
-                
-    except Exception as e:
-        st.error(f"Erreur: {str(e)}")
-        
-    except ImportError:
-        st.error("Erreur: Librairie telethon non installee. Run: pip install telethon")
+def _send_code(phone: str):
+    """Envoie un code de verification sur Telegram."""
+    api_id, api_hash = _get_app_credentials()
 
-
-def use_existing_session():
-    """
-    Utilise une session existante (copier-coller)
-    """
-    session_string = st.text_area("String Session (copier-coller depuis l'appli)", height=150, help="Copiez-colliez votre session simplement separee par des lignes")
-    
-    if st.button("Utiliser ma session", type="primary"):
-        if not session_string.strip():
-            st.error("Veuillez entrer une session valide")
-            return
-        
-        # Valider la session
+    with st.spinner("Envoi du code en cours..."):
         try:
-            from telethon import TelegramClient
-            from telethon.sessions import StringSession
-            
-            # Fonction async pour valider
-            async def _validate():
-                client = TelegramClient(StringSession(session_string.strip()))
-                async with client:
-                    me = await client.get_me()
-                    return me
-            
-            # Executer la validation
-            me = asyncio.run(_validate())
-            
-            # Stocker les infos
-            st.session_state.telegram_session = session_string.strip()
-            st.session_state.telegram_api_id = str(me.id)
-            st.session_state.telegram_api_hash = "# Demande auto-generee #"
-            st.session_state.telegram_logged_in = True
-            
-            st.success(f"Session valide ! Bonjour @{me.first_name} {me.last_name} !")
-            
+            async def _do_send():
+                client = TelegramClient(StringSession(), api_id, api_hash)
+                await client.connect()
+                result = await client.send_code_request(phone)
+                session_str = client.session.save()
+                await client.disconnect()
+                return result.phone_code_hash, session_str
+
+            phone_code_hash, session_str = asyncio.run(_do_send())
+            st.session_state.tg_phone = phone
+            st.session_state.tg_phone_hash = phone_code_hash
+            st.session_state.tg_session = session_str
+            st.session_state.tg_awaiting_code = True
+            st.rerun()
+
         except Exception as e:
-            st.error(f"Erreur: Session invalide - {str(e)}")
+            msg = str(e)
+            if 'PHONE_NUMBER_INVALID' in msg:
+                st.error("Numero de telephone invalide. Utilisez le format international (+33612345678)")
+            elif 'FLOOD' in msg:
+                st.error("Trop de tentatives. Attendez quelques minutes avant de reessayer.")
+            else:
+                st.error(f"Erreur lors de l'envoi du code: {msg}")
 
 
-def validate_and_connect():
-    """
-    Valide les identifiants et connecte l'utilisateur
-    """
-    try:
-        # Verifier les credentials
-        api_id = st.session_state.get('telegram_api_id')
-        api_hash = st.session_state.get('telegram_api_hash')
-        session_string = st.session_state.get('telegram_session')
-        
-        if not api_id or not api_hash:
-            st.warning("Veuillez saisir vos identifiants API")
-            return
-        
-        # Connexion avec Telegram
-        st.info("Connexion en cours...")
-        
-        from telethon import TelegramClient
-        from telethon.sessions import StringSession
-        
-        # Fonction async pour connecter
-        async def _connect():
-            client = TelegramClient(StringSession(session_string), int(api_id), api_hash)
-            async with client:
+def _verify_code(code: str):
+    """Verifie le code recu et connecte l'utilisateur."""
+    api_id, api_hash = _get_app_credentials()
+    session_str = st.session_state.tg_session
+    phone = st.session_state.tg_phone
+    phone_code_hash = st.session_state.tg_phone_hash
+
+    with st.spinner("Verification en cours..."):
+        try:
+            async def _do_verify():
+                client = TelegramClient(StringSession(session_str), api_id, api_hash)
+                await client.connect()
+                try:
+                    await client.sign_in(
+                        phone=phone,
+                        code=code,
+                        phone_code_hash=phone_code_hash
+                    )
+                except SessionPasswordNeededError:
+                    await client.disconnect()
+                    raise ValueError("2FA_REQUIRED")
                 me = await client.get_me()
-                return me
-        
-        # Executer la connexion
-        me = asyncio.run(_connect())
-        
-        # Stocker les infos
-        st.session_state.telegram_logged_in = True
-        
-        # Afficher le resultat
-        st.success(f"Connecte ! Bonjour @{me.first_name} {me.last_name} !")
-        
-    except Exception as e:
-        st.error(f"Erreur de connexion: {str(e)}")
-        
-    except ImportError:
-        st.error("Erreur: Librairie non disponible")
+                new_session = client.session.save()
+                await client.disconnect()
+                return me, new_session
+
+            me, new_session = asyncio.run(_do_verify())
+
+            first = me.first_name or ''
+            last = me.last_name or ''
+            name = f"{first} {last}".strip() or str(me.id)
+
+            st.session_state.tg_session = new_session
+            st.session_state.tg_logged_in = True
+            st.session_state.tg_user_name = name
+            st.session_state.tg_user_id = me.id
+            st.session_state.tg_awaiting_code = False
+            st.success(f"Bienvenue {name} !")
+            st.rerun()
+
+        except ValueError as e:
+            if '2FA_REQUIRED' in str(e):
+                st.warning("Votre compte a la verification en 2 etapes activee.")
+                _handle_2fa()
+            else:
+                st.error(str(e))
+        except PhoneCodeInvalidError:
+            st.error("Code incorrect. Verifiez le code sur Telegram et reessayez.")
+        except PhoneCodeExpiredError:
+            st.error("Code expire. Cliquez sur Changer de numero pour recommencer.")
+            st.session_state.tg_awaiting_code = False
+        except Exception as e:
+            st.error(f"Erreur: {str(e)}")
+
+
+def _handle_2fa():
+    """Gestion de la verification en 2 etapes (mot de passe Telegram)."""
+    api_id, api_hash = _get_app_credentials()
+    session_str = st.session_state.tg_session
+
+    password = st.text_input(
+        "Mot de passe Telegram (verification en 2 etapes)",
+        type="password",
+        help="Le mot de passe que vous avez defini dans Telegram > Parametres > Confidentialite > Verification en 2 etapes"
+    )
+    if st.button("Confirmer le mot de passe", type="primary"):
+        with st.spinner("Verification..."):
+            try:
+                async def _do_2fa():
+                    client = TelegramClient(StringSession(session_str), api_id, api_hash)
+                    await client.connect()
+                    await client.sign_in(password=password)
+                    me = await client.get_me()
+                    new_session = client.session.save()
+                    await client.disconnect()
+                    return me, new_session
+
+                me, new_session = asyncio.run(_do_2fa())
+                first = me.first_name or ''
+                last = me.last_name or ''
+                name = f"{first} {last}".strip() or str(me.id)
+                st.session_state.tg_session = new_session
+                st.session_state.tg_logged_in = True
+                st.session_state.tg_user_name = name
+                st.session_state.tg_user_id = me.id
+                st.session_state.tg_awaiting_code = False
+                st.success(f"Bienvenue {name} !")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Mot de passe incorrect: {str(e)}")
+
+
+def _logout():
+    """Deconnecte l'utilisateur."""
+    keys = ['tg_logged_in', 'tg_phone', 'tg_session', 'tg_phone_hash',
+            'tg_awaiting_code', 'tg_user_name', 'tg_user_id']
+    for key in keys:
+        if key in st.session_state:
+            del st.session_state[key]
+    st.rerun()
 
 
 def get_telegram_client() -> TelegramClient:
     """
-    Obtient un client Telegram connecte avec la session de l'utilisateur
-    Utilise ce fonction dans les autres modules de l'application
+    Retourne un TelegramClient configure pour l'utilisateur connecte.
+    Utiliser avec 'async with client:' dans les autres modules.
     """
-    if 'telegram_session' not in st.session_state or not st.session_state.telegram_session:
-        raise ValueError("Veuillez d'abord vous connecter a Telegram (Etape 10)")
-    
-    if 'telegram_api_id' not in st.session_state or 'telegram_api_hash' not in st.session_state:
-        raise ValueError("Session invalide - Veuillez vous reconnecter")
-    
-    # Recuperer les credentials
-    api_id = int(st.session_state.telegram_api_id)
-    api_hash = st.session_state.telegram_api_hash
-    session_string = st.session_state.telegram_session
-    
-    return TelegramClient(StringSession(session_string), api_id, api_hash)
+    if not st.session_state.get('tg_session'):
+        raise ValueError("Non connecte - veuillez vous connecter")
+
+    api_id, api_hash = _get_app_credentials()
+    return TelegramClient(
+        StringSession(st.session_state.tg_session),
+        api_id,
+        api_hash
+    )
