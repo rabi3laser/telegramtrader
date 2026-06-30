@@ -93,13 +93,29 @@ def ocr_tesseract(image_bytes: bytes) -> Optional[str]:
     try:
         import pytesseract
         from PIL import Image
+        import shutil
+
+        # Configurer le chemin Tesseract selon l'OS
+        # Streamlit Cloud (Linux/Ubuntu) : /usr/bin/tesseract
+        # Windows local : C:/Program Files/Tesseract-OCR/tesseract.exe
+        if pytesseract.pytesseract.tesseract_cmd == "tesseract":
+            # Chercher automatiquement le binaire
+            for candidate in [
+                "/usr/bin/tesseract",
+                "/usr/local/bin/tesseract",
+                r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+                r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            ]:
+                if shutil.which(candidate) or (candidate and __import__("os").path.isfile(candidate)):
+                    pytesseract.pytesseract.tesseract_cmd = candidate
+                    break
 
         img = preprocess_image(image_bytes)
         if img is None:
             img = Image.open(io.BytesIO(image_bytes)).convert("L")
 
         # Config Tesseract optimisée pour texte monospace structuré
-        config = "--psm 6 --oem 3 -c tessedit_char_whitelist=0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz:.,/()+-% #="
+        config = "--psm 6 --oem 3"
 
         text = pytesseract.image_to_string(img, config=config, lang="eng")
         return text if text.strip() else None
