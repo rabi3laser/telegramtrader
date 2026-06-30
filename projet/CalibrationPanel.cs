@@ -136,13 +136,14 @@ namespace NinjaTrader.NinjaScript.Indicators
                     "  ==========================";
 
                 // ── Affichage avec Draw.TextFixed ─────────────
+                // Note: null = police par défaut NT8 (compatible toutes versions)
                 Draw.TextFixed(
                     this,
                     "CalibrationPanel_Text",
                     text,
                     GetTextPosition(),
                     Brushes.Cyan,
-                    new NinjaTrader.Gui.SimpleFont("Courier New", FontSize),
+                    null,
                     Brushes.Transparent,
                     Brushes.Black,
                     220
@@ -156,7 +157,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     "CalibrationPanel ERROR:\n" + ex.Message,
                     TextPosition.TopLeft,
                     Brushes.Red,
-                    new NinjaTrader.Gui.SimpleFont("Courier New", 11),
+                    null,
                     Brushes.Transparent,
                     Brushes.Black,
                     200
