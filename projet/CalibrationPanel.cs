@@ -1,430 +1,180 @@
 // ============================================================
 // CALIBRATION PANEL - INDICATEUR NINJATRADER 8
+// VERSION UNIVERSELLE - Compatible toutes versions NT8
 // ============================================================
-// Affiche un panneau d'information complet sur le chart
-// pour faciliter la capture d'écran et l'OCR par Streamlit.
+// Utilise Draw.TextFixed() - méthode standard NT8
+// Aucune dépendance DirectX/SharpDX
 //
 // INSTALLATION:
 // 1. Copier ce fichier dans:
 //    C:\Users\[Votre Nom]\Documents\NinjaTrader 8\bin\Custom\Indicators\
-// 2. Dans NinjaTrader: Tools → Edit NinjaScript → Compile
-// 3. Sur un chart: Indicators → CalibrationPanel → Add
-//
-// UTILISATION:
-// 1. Ajouter l'indicateur sur le chart du marché à calibrer
-// 2. Faire une capture d'écran (Win + Shift + S ou PrintScreen)
-// 3. Uploader dans Streamlit → Section "Repères de Prix NT8"
+// 2. NinjaTrader → Tools → Edit NinjaScript → Compile (F5)
+// 3. Chart → Clic droit → Indicators → CalibrationPanel → Add
 // ============================================================
 
 #region Using declarations
 using System;
-using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Windows.Media;
 using NinjaTrader.Cbi;
 using NinjaTrader.Gui;
 using NinjaTrader.Gui.Chart;
-using NinjaTrader.Gui.SuperDom;
 using NinjaTrader.Data;
 using NinjaTrader.NinjaScript;
-using NinjaTrader.Core.FloatingPoint;
 using NinjaTrader.NinjaScript.DrawingTools;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Media;
-using SharpDX;
-using SharpDX.Direct2D1;
-using SharpDX.DirectWrite;
 #endregion
 
 namespace NinjaTrader.NinjaScript.Indicators
 {
     public class CalibrationPanel : Indicator
     {
-        // ── Paramètres configurables ──────────────────────────
-        private int panelX = 10;
-        private int panelY = 10;
-        private int fontSize = 14;
-        private bool showATR = true;
-        private bool showVolume = true;
-        private bool showSpread = true;
-        private int atrPeriod = 14;
-
-        // ── Ressources DirectX ────────────────────────────────
-        private SharpDX.Direct2D1.Brush bgBrush;
-        private SharpDX.Direct2D1.Brush borderBrush;
-        private SharpDX.Direct2D1.Brush titleBrush;
-        private SharpDX.Direct2D1.Brush priceBrush;
-        private SharpDX.Direct2D1.Brush labelBrush;
-        private SharpDX.Direct2D1.Brush upBrush;
-        private SharpDX.Direct2D1.Brush downBrush;
-        private SharpDX.Direct2D1.Brush separatorBrush;
-
-        private SharpDX.DirectWrite.TextFormat titleFormat;
-        private SharpDX.DirectWrite.TextFormat priceFormat;
-        private SharpDX.DirectWrite.TextFormat labelFormat;
-        private SharpDX.DirectWrite.TextFormat smallFormat;
-
-        private SharpDX.DirectWrite.Factory dwFactory;
-
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
             {
-                Description = "Panneau de calibration pour Streamlit - Affiche OHLCV, ATR, Heure";
-                Name = "CalibrationPanel";
-                Calculate = Calculate.OnEachTick;
-                IsOverlay = true;
-                DisplayInDataBox = false;
-                DrawOnPricePanel = true;
-                PaintPriceMarkers = false;
-                ScaleJustification = NinjaTrader.Gui.Chart.ScaleJustification.Right;
+                Description  = "Panneau OHLC pour calibration Streamlit - Compatible toutes versions NT8";
+                Name         = "CalibrationPanel";
+                Calculate    = Calculate.OnEachTick;
+                IsOverlay    = true;
+                DisplayInDataBox    = false;
+                DrawOnPricePanel    = true;
+                PaintPriceMarkers   = false;
                 IsSuspendedWhileInactive = false;
 
                 // Paramètres par défaut
-                PanelX = 10;
-                PanelY = 10;
-                FontSize = 14;
-                ShowATR = true;
-                ShowVolume = true;
-                ShowSpread = true;
-                ATRPeriod = 14;
-                BackgroundOpacity = 200;
-            }
-            else if (State == State.Configure)
-            {
-                if (ShowATR)
-                    AddDataSeries(BarsPeriodType.Tick, 1);
-            }
-            else if (State == State.Terminated)
-            {
-                DisposeResources();
+                PanelPosition = TextPosition.TopLeft;
+                FontSize      = 12;
+                ATRPeriod     = 14;
+                ShowATR       = true;
+                ShowVolume    = true;
             }
         }
 
         protected override void OnBarUpdate()
         {
-            // Forcer le redessin à chaque tick
-        }
-
-        protected override void OnRender(ChartControl chartControl, ChartScale chartScale)
-        {
-            if (RenderTarget == null || Bars == null || CurrentBar < 1)
+            if (CurrentBar < 2)
                 return;
 
             try
             {
-                InitResources();
-                DrawPanel(chartControl, chartScale);
+                // ── Données de la barre courante ──────────────
+                double last    = Close[0];
+                double open    = Open[0];
+                double high    = High[0];
+                double low     = Low[0];
+                double prev    = Close[1];
+                long   vol     = (long)Volume[0];
+                double chg     = last - prev;
+                double chgPct  = prev != 0 ? (chg / prev) * 100.0 : 0.0;
+                string chgSign = chg >= 0 ? "+" : "";
+
+                // ── ATR ───────────────────────────────────────
+                string atrStr = "";
+                if (ShowATR && CurrentBar >= ATRPeriod)
+                {
+                    try
+                    {
+                        double atr = ATR(ATRPeriod)[0];
+                        atrStr = string.Format("ATR({0})    : {1:F2}\n", ATRPeriod, atr);
+                    }
+                    catch { }
+                }
+
+                // ── Volume ────────────────────────────────────
+                string volStr = ShowVolume
+                    ? string.Format("VOLUME     : {0:N0}\n", vol)
+                    : "";
+
+                // ── Heure / Date ──────────────────────────────
+                string barTime = Time[0].ToString("HH:mm:ss");
+                string barDate = Time[0].ToString("dd/MM/yyyy");
+                string srvTime = DateTime.Now.ToString("HH:mm:ss");
+
+                // ── Instrument / Timeframe ────────────────────
+                string instr = Instrument.FullName;
+                string tf    = BarsPeriod.ToString();
+
+                // ── Tick size ─────────────────────────────────
+                double tick = Instrument.MasterInstrument.TickSize;
+
+                // ── Construction du texte ─────────────────────
+                string line = "─────────────────────────────────────\n";
+
+                string text =
+                    "╔═══ CALIBRATION PANEL ══════════════╗\n" +
+                    string.Format("  INSTRUMENT : {0}\n", instr) +
+                    string.Format("  TIMEFRAME  : {0}\n", tf) +
+                    line +
+                    string.Format("  DATE       : {0}\n", barDate) +
+                    string.Format("  BAR TIME   : {0}\n", barTime) +
+                    line +
+                    string.Format("  OPEN       : {0:F2}\n", open) +
+                    string.Format("  HIGH       : {0:F2}\n", high) +
+                    string.Format("  LOW        : {0:F2}\n", low) +
+                    string.Format("  LAST       : {0:F2}  ({1}{2:F2} / {1}{3:F2}%)\n",
+                        last, chgSign, chg, chgPct) +
+                    line +
+                    atrStr +
+                    volStr +
+                    string.Format("  TICK SIZE  : {0:F2}\n", tick) +
+                    line +
+                    string.Format("  SERVER     : {0}\n", srvTime) +
+                    "╚════════════════════════════════════╝";
+
+                // ── Affichage avec Draw.TextFixed ─────────────
+                Draw.TextFixed(
+                    this,
+                    "CalibrationPanel_Text",
+                    text,
+                    PanelPosition,
+                    Brushes.Cyan,
+                    new SimpleFont("Courier New", FontSize),
+                    Brushes.Transparent,
+                    Brushes.Black,
+                    220
+                );
             }
             catch (Exception ex)
             {
-                // Silencieux pour ne pas bloquer le chart
+                // Afficher l'erreur pour le débogage
+                Draw.TextFixed(
+                    this,
+                    "CalibrationPanel_Text",
+                    "CalibrationPanel ERROR:\n" + ex.Message,
+                    TextPosition.TopLeft,
+                    Brushes.Red,
+                    new SimpleFont("Courier New", 11),
+                    Brushes.Transparent,
+                    Brushes.Black,
+                    200
+                );
             }
-        }
-
-        private void InitResources()
-        {
-            if (dwFactory == null)
-                dwFactory = new SharpDX.DirectWrite.Factory();
-
-            // Couleurs du panneau
-            var bgColor = new SharpDX.Color4(0.05f, 0.05f, 0.10f, BackgroundOpacity / 255f);
-            var borderColor = new SharpDX.Color4(0.3f, 0.6f, 1.0f, 1.0f);
-            var titleColor = new SharpDX.Color4(0.3f, 0.8f, 1.0f, 1.0f);
-            var priceColor = new SharpDX.Color4(1.0f, 1.0f, 1.0f, 1.0f);
-            var labelColor = new SharpDX.Color4(0.7f, 0.7f, 0.7f, 1.0f);
-            var upColor = new SharpDX.Color4(0.0f, 0.9f, 0.4f, 1.0f);
-            var downColor = new SharpDX.Color4(1.0f, 0.3f, 0.3f, 1.0f);
-            var sepColor = new SharpDX.Color4(0.3f, 0.3f, 0.4f, 1.0f);
-
-            if (bgBrush == null) bgBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, bgColor);
-            if (borderBrush == null) borderBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, borderColor);
-            if (titleBrush == null) titleBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, titleColor);
-            if (priceBrush == null) priceBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, priceColor);
-            if (labelBrush == null) labelBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, labelColor);
-            if (upBrush == null) upBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, upColor);
-            if (downBrush == null) downBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, downColor);
-            if (separatorBrush == null) separatorBrush = new SharpDX.Direct2D1.SolidColorBrush(RenderTarget, sepColor);
-
-            if (titleFormat == null)
-                titleFormat = new SharpDX.DirectWrite.TextFormat(dwFactory, "Consolas", FontSize + 2)
-                { TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading };
-
-            if (priceFormat == null)
-                priceFormat = new SharpDX.DirectWrite.TextFormat(dwFactory, "Consolas", FontSize + 4)
-                { TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading };
-
-            if (labelFormat == null)
-                labelFormat = new SharpDX.DirectWrite.TextFormat(dwFactory, "Consolas", FontSize)
-                { TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading };
-
-            if (smallFormat == null)
-                smallFormat = new SharpDX.DirectWrite.TextFormat(dwFactory, "Consolas", FontSize - 2)
-                { TextAlignment = SharpDX.DirectWrite.TextAlignment.Leading };
-        }
-
-        private void DrawPanel(ChartControl chartControl, ChartScale chartScale)
-        {
-            // ── Collecte des données ──────────────────────────
-            double lastPrice = Close[0];
-            double openPrice = Open[0];
-            double highPrice = High[0];
-            double lowPrice = Low[0];
-            double prevClose = CurrentBar > 0 ? Close[1] : lastPrice;
-            long volume = (long)Volume[0];
-            double change = lastPrice - prevClose;
-            double changePct = prevClose != 0 ? (change / prevClose) * 100 : 0;
-
-            // ATR
-            double atrValue = 0;
-            if (ShowATR && CurrentBar >= ATRPeriod)
-            {
-                try { atrValue = ATR(ATRPeriod)[0]; }
-                catch { }
-            }
-
-            // Heure et date
-            DateTime barTime = Time[0];
-            string timeStr = barTime.ToString("HH:mm:ss");
-            string dateStr = barTime.ToString("dd/MM/yyyy");
-            string serverTime = DateTime.Now.ToString("HH:mm:ss.fff");
-
-            // Nom de l'instrument
-            string instrument = Instrument.FullName;
-            string timeframe = BarsPeriod.ToString();
-
-            // Spread (si disponible)
-            double spread = 0;
-            try
-            {
-                if (Instrument.MasterInstrument != null)
-                    spread = Instrument.MasterInstrument.TickSize;
-            }
-            catch { }
-
-            // ── Calcul de la taille du panneau ───────────────
-            float panelWidth = 320;
-            float lineHeight = FontSize + 8;
-            float padding = 12;
-            float titleHeight = lineHeight + 4;
-            float separatorH = 2;
-
-            int lineCount = 8; // Lignes de base
-            if (ShowATR) lineCount++;
-            if (ShowVolume) lineCount++;
-            if (ShowSpread) lineCount++;
-
-            float panelHeight = padding * 2 + titleHeight + separatorH + lineCount * lineHeight + 10;
-
-            // ── Dessin du fond ────────────────────────────────
-            var panelRect = new SharpDX.RectangleF(PanelX, PanelY, panelWidth, panelHeight);
-            RenderTarget.FillRectangle(panelRect, bgBrush);
-            RenderTarget.DrawRectangle(panelRect, borderBrush, 2.0f);
-
-            // ── Titre ─────────────────────────────────────────
-            float y = PanelY + padding;
-            float x = PanelX + padding;
-            float w = panelWidth - padding * 2;
-
-            string titleText = $"CALIBRATION PANEL";
-            DrawText(titleText, titleFormat, titleBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            // Ligne séparatrice
-            RenderTarget.DrawLine(
-                new SharpDX.Vector2(PanelX + 4, y),
-                new SharpDX.Vector2(PanelX + panelWidth - 4, y),
-                borderBrush, 1.5f
-            );
-            y += separatorH + 4;
-
-            // ── Instrument + Timeframe ────────────────────────
-            DrawLabelValue("INSTRUMENT", instrument, labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            DrawLabelValue("TIMEFRAME ", timeframe, labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            // Ligne séparatrice
-            RenderTarget.DrawLine(
-                new SharpDX.Vector2(PanelX + 4, y),
-                new SharpDX.Vector2(PanelX + panelWidth - 4, y),
-                separatorBrush, 1.0f
-            );
-            y += separatorH + 4;
-
-            // ── Date et Heure ─────────────────────────────────
-            DrawLabelValue("DATE      ", dateStr, labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            DrawLabelValue("BAR TIME  ", timeStr, labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            // Ligne séparatrice
-            RenderTarget.DrawLine(
-                new SharpDX.Vector2(PanelX + 4, y),
-                new SharpDX.Vector2(PanelX + panelWidth - 4, y),
-                separatorBrush, 1.0f
-            );
-            y += separatorH + 4;
-
-            // ── Prix OHLC ─────────────────────────────────────
-            DrawLabelValue("OPEN      ", openPrice.ToString("F2"), labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            DrawLabelValue("HIGH      ", highPrice.ToString("F2"), labelFormat, priceFormat, labelBrush, upBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            DrawLabelValue("LOW       ", lowPrice.ToString("F2"), labelFormat, priceFormat, labelBrush, downBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            // LAST avec couleur selon direction
-            var lastBrush = change >= 0 ? upBrush : downBrush;
-            string changeStr = $"{lastPrice:F2}  ({(change >= 0 ? "+" : "")}{change:F2} / {(changePct >= 0 ? "+" : "")}{changePct:F2}%)";
-            DrawLabelValue("LAST      ", changeStr, labelFormat, priceFormat, labelBrush, lastBrush, x, y, w, lineHeight);
-            y += lineHeight;
-
-            // Ligne séparatrice
-            RenderTarget.DrawLine(
-                new SharpDX.Vector2(PanelX + 4, y),
-                new SharpDX.Vector2(PanelX + panelWidth - 4, y),
-                separatorBrush, 1.0f
-            );
-            y += separatorH + 4;
-
-            // ── Métriques supplémentaires ─────────────────────
-            if (ShowATR && atrValue > 0)
-            {
-                DrawLabelValue($"ATR({ATRPeriod})   ", atrValue.ToString("F2"), labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-                y += lineHeight;
-            }
-
-            if (ShowVolume)
-            {
-                DrawLabelValue("VOLUME    ", volume.ToString("N0"), labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-                y += lineHeight;
-            }
-
-            if (ShowSpread && spread > 0)
-            {
-                DrawLabelValue("TICK SIZE ", spread.ToString("F2"), labelFormat, priceFormat, labelBrush, priceBrush, x, y, w, lineHeight);
-                y += lineHeight;
-            }
-
-            // ── Timestamp serveur (précision ms) ─────────────
-            RenderTarget.DrawLine(
-                new SharpDX.Vector2(PanelX + 4, y),
-                new SharpDX.Vector2(PanelX + panelWidth - 4, y),
-                separatorBrush, 1.0f
-            );
-            y += separatorH + 4;
-
-            DrawText($"SERVER: {serverTime}", smallFormat, labelBrush, x, y, w, lineHeight);
-        }
-
-        private void DrawLabelValue(
-            string label, string value,
-            SharpDX.DirectWrite.TextFormat labelFmt,
-            SharpDX.DirectWrite.TextFormat valueFmt,
-            SharpDX.Direct2D1.Brush lBrush,
-            SharpDX.Direct2D1.Brush vBrush,
-            float x, float y, float w, float h)
-        {
-            float labelW = 110;
-            DrawText(label + ":", labelFmt, lBrush, x, y, labelW, h);
-            DrawText(value, valueFmt, vBrush, x + labelW, y, w - labelW, h);
-        }
-
-        private void DrawText(
-            string text,
-            SharpDX.DirectWrite.TextFormat format,
-            SharpDX.Direct2D1.Brush brush,
-            float x, float y, float w, float h)
-        {
-            var rect = new SharpDX.RectangleF(x, y, w, h);
-            RenderTarget.DrawText(text, format, rect, brush);
-        }
-
-        private void DisposeResources()
-        {
-            bgBrush?.Dispose(); bgBrush = null;
-            borderBrush?.Dispose(); borderBrush = null;
-            titleBrush?.Dispose(); titleBrush = null;
-            priceBrush?.Dispose(); priceBrush = null;
-            labelBrush?.Dispose(); labelBrush = null;
-            upBrush?.Dispose(); upBrush = null;
-            downBrush?.Dispose(); downBrush = null;
-            separatorBrush?.Dispose(); separatorBrush = null;
-            titleFormat?.Dispose(); titleFormat = null;
-            priceFormat?.Dispose(); priceFormat = null;
-            labelFormat?.Dispose(); labelFormat = null;
-            smallFormat?.Dispose(); smallFormat = null;
-            dwFactory?.Dispose(); dwFactory = null;
         }
 
         // ── Propriétés configurables ──────────────────────────
 
         [NinjaScriptProperty]
-        [Display(Name = "Position X (gauche)", Order = 1, GroupName = "Panneau")]
-        public int PanelX
-        {
-            get { return panelX; }
-            set { panelX = Math.Max(0, value); }
-        }
+        [Display(Name = "Position du panneau", Order = 1, GroupName = "Panneau")]
+        public TextPosition PanelPosition { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Position Y (haut)", Order = 2, GroupName = "Panneau")]
-        public int PanelY
-        {
-            get { return panelY; }
-            set { panelY = Math.Max(0, value); }
-        }
+        [Range(8, 24)]
+        [Display(Name = "Taille de police", Order = 2, GroupName = "Panneau")]
+        public int FontSize { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Taille de police", Order = 3, GroupName = "Panneau")]
-        public int FontSize
-        {
-            get { return fontSize; }
-            set { fontSize = Math.Max(8, Math.Min(24, value)); }
-        }
+        [Display(Name = "Afficher ATR", Order = 3, GroupName = "Métriques")]
+        public bool ShowATR { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Opacité fond (0-255)", Order = 4, GroupName = "Panneau")]
-        public int BackgroundOpacity { get; set; }
+        [Range(1, 100)]
+        [Display(Name = "Période ATR", Order = 4, GroupName = "Métriques")]
+        public int ATRPeriod { get; set; }
 
         [NinjaScriptProperty]
-        [Display(Name = "Afficher ATR", Order = 5, GroupName = "Métriques")]
-        public bool ShowATR
-        {
-            get { return showATR; }
-            set { showATR = value; }
-        }
-
-        [NinjaScriptProperty]
-        [Display(Name = "Période ATR", Order = 6, GroupName = "Métriques")]
-        public int ATRPeriod
-        {
-            get { return atrPeriod; }
-            set { atrPeriod = Math.Max(1, value); }
-        }
-
-        [NinjaScriptProperty]
-        [Display(Name = "Afficher Volume", Order = 7, GroupName = "Métriques")]
-        public bool ShowVolume
-        {
-            get { return showVolume; }
-            set { showVolume = value; }
-        }
-
-        [NinjaScriptProperty]
-        [Display(Name = "Afficher Tick Size", Order = 8, GroupName = "Métriques")]
-        public bool ShowSpread
-        {
-            get { return showSpread; }
-            set { showSpread = value; }
-        }
+        [Display(Name = "Afficher Volume", Order = 5, GroupName = "Métriques")]
+        public bool ShowVolume { get; set; }
     }
 }
 
@@ -435,18 +185,37 @@ namespace NinjaTrader.NinjaScript.Indicators
     public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
     {
         private CalibrationPanel[] cacheCalibrationPanel;
-        public CalibrationPanel CalibrationPanel(int panelX, int panelY, int fontSize, int backgroundOpacity, bool showATR, int aTRPeriod, bool showVolume, bool showSpread)
+
+        public CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
         {
-            return CalibrationPanel(Input, panelX, panelY, fontSize, backgroundOpacity, showATR, aTRPeriod, showVolume, showSpread);
+            return CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
         }
 
-        public CalibrationPanel CalibrationPanel(ISeries<double> input, int panelX, int panelY, int fontSize, int backgroundOpacity, bool showATR, int aTRPeriod, bool showVolume, bool showSpread)
+        public CalibrationPanel CalibrationPanel(ISeries<double> input, TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
         {
             if (cacheCalibrationPanel != null)
                 for (int idx = 0; idx < cacheCalibrationPanel.Length; idx++)
-                    if (cacheCalibrationPanel[idx] != null && cacheCalibrationPanel[idx].PanelX == panelX && cacheCalibrationPanel[idx].PanelY == panelY && cacheCalibrationPanel[idx].FontSize == fontSize && cacheCalibrationPanel[idx].BackgroundOpacity == backgroundOpacity && cacheCalibrationPanel[idx].ShowATR == showATR && cacheCalibrationPanel[idx].ATRPeriod == aTRPeriod && cacheCalibrationPanel[idx].ShowVolume == showVolume && cacheCalibrationPanel[idx].ShowSpread == showSpread && cacheCalibrationPanel[idx].EqualsInput(input))
+                    if (cacheCalibrationPanel[idx] != null
+                        && cacheCalibrationPanel[idx].PanelPosition == panelPosition
+                        && cacheCalibrationPanel[idx].FontSize == fontSize
+                        && cacheCalibrationPanel[idx].ShowATR == showATR
+                        && cacheCalibrationPanel[idx].ATRPeriod == aTRPeriod
+                        && cacheCalibrationPanel[idx].ShowVolume == showVolume
+                        && cacheCalibrationPanel[idx].EqualsInput(input))
                         return cacheCalibrationPanel[idx];
-            return CacheIndicator<CalibrationPanel>(new CalibrationPanel(){ PanelX = panelX, PanelY = panelY, FontSize = fontSize, BackgroundOpacity = backgroundOpacity, ShowATR = showATR, ATRPeriod = aTRPeriod, ShowVolume = showVolume, ShowSpread = showSpread }, input, ref cacheCalibrationPanel);
+
+            return CacheIndicator<CalibrationPanel>(
+                new CalibrationPanel()
+                {
+                    PanelPosition = panelPosition,
+                    FontSize      = fontSize,
+                    ShowATR       = showATR,
+                    ATRPeriod     = aTRPeriod,
+                    ShowVolume    = showVolume
+                },
+                input,
+                ref cacheCalibrationPanel
+            );
         }
     }
 }
@@ -455,9 +224,9 @@ namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
 {
     public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
     {
-        public Indicators.CalibrationPanel CalibrationPanel(int panelX, int panelY, int fontSize, int backgroundOpacity, bool showATR, int aTRPeriod, bool showVolume, bool showSpread)
+        public Indicators.CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
         {
-            return indicator.CalibrationPanel(Input, panelX, panelY, fontSize, backgroundOpacity, showATR, aTRPeriod, showVolume, showSpread);
+            return indicator.CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
         }
     }
 }
@@ -466,9 +235,9 @@ namespace NinjaTrader.NinjaScript.Strategies
 {
     public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
     {
-        public Indicators.CalibrationPanel CalibrationPanel(int panelX, int panelY, int fontSize, int backgroundOpacity, bool showATR, int aTRPeriod, bool showVolume, bool showSpread)
+        public Indicators.CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
         {
-            return indicator.CalibrationPanel(Input, panelX, panelY, fontSize, backgroundOpacity, showATR, aTRPeriod, showVolume, showSpread);
+            return indicator.CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
         }
     }
 }
