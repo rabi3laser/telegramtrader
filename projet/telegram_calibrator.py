@@ -362,17 +362,19 @@ async def calibrate_channels_batch(channels: List[Dict], config: Dict = None) ->
     Returns:
         Résultats groupés par statut
     """
-    # Vérifier que l'utilisateur est connecté
-    if 'telegram_session' not in st.session_state or not st.session_state.telegram_session:
+    # Vérifier que l'utilisateur est connecté (nouvelle variable tg_session)
+    if not st.session_state.get('tg_session'):
         raise ValueError("⚠️ Veuillez d'abord vous connecter à Telegram")
     
-    if 'telegram_api_id' not in st.session_state or 'telegram_api_hash' not in st.session_state:
-        raise ValueError("⚠️ Session invalide - Veuillez vous reconnecter")
+    # Utiliser les credentials de l'application (st.secrets) + session utilisateur
+    try:
+        api_id = int(st.secrets["telegram"]["api_id"])
+        api_hash = st.secrets["telegram"]["api_hash"]
+    except (KeyError, AttributeError):
+        api_id = int(st.secrets.get("TELEGRAM_API_ID", 0))
+        api_hash = st.secrets.get("TELEGRAM_API_HASH", "")
     
-    # Utiliser les credentials de l'utilisateur connecté
-    api_id = st.session_state.telegram_api_id
-    api_hash = st.session_state.telegram_api_hash
-    session_string = st.session_state.telegram_session
+    session_string = st.session_state.tg_session
     
     print(f"✅ Utilisation de la session utilisateur (SaaS mode)")
     
