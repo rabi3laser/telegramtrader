@@ -1,13 +1,13 @@
 // ============================================================
 // CALIBRATION PANEL - INDICATEUR NINJATRADER 8
-// VERSION UNIVERSELLE - Compatible toutes versions NT8
+// VERSION 2.0 - Avec compteur de session et OHLC cumulatif
 // ============================================================
-// Utilise Draw.TextFixed() - méthode standard NT8
-// Aucune dépendance DirectX/SharpDX
+// Affiche les données de la barre courante ET les données
+// cumulatives depuis l'ouverture de session.
+// L'utilisateur n'a qu'à lire et saisir dans Streamlit.
 //
 // INSTALLATION:
-// 1. Copier ce fichier dans:
-//    C:\Users\[Votre Nom]\Documents\NinjaTrader 8\bin\Custom\Indicators\
+// 1. Copier dans: Documents\NinjaTrader 8\bin\Custom\Indicators\
 // 2. NinjaTrader → Tools → Edit NinjaScript → Compile (F5)
 // 3. Chart → Clic droit → Indicators → CalibrationPanel → Add
 // ============================================================
@@ -29,6 +29,13 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class CalibrationPanel : Indicator
     {
+        // ── Variables de session ──────────────────────────────
+        private int    _barCount    = 0;
+        private double _sessHigh    = double.MinValue;
+        private double _sessLow     = double.MaxValue;
+        private double _sessOpen    = 0;
+        private string _sessStart   = "";
+
         // Conversion position : 0=TopLeft, 1=TopRight, 2=BottomLeft, 3=BottomRight
         private TextPosition GetTextPosition()
         {
@@ -45,7 +52,7 @@ namespace NinjaTrader.NinjaScript.Indicators
         {
             if (State == State.SetDefaults)
             {
-                Description               = "Panneau OHLC pour calibration Streamlit - Compatible toutes versions NT8";
+                Description               = "Panneau OHLC + Session pour calibration Streamlit";
                 Name                      = "CalibrationPanel";
                 Calculate                 = Calculate.OnEachTick;
                 IsOverlay                 = true;
@@ -54,8 +61,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 PaintPriceMarkers         = false;
                 IsSuspendedWhileInactive  = false;
 
-                // Paramètres par défaut
-                PanelPosition = 0;   // 0=TopLeft
+                PanelPosition = 0;
                 FontSize      = 12;
                 ATRPeriod     = 14;
                 ShowATR       = true;
@@ -68,9 +74,26 @@ namespace NinjaTrader.NinjaScript.Indicators
             if (CurrentBar < 2)
                 return;
 
+            // ── Mise à jour des données de session ────────────
+            if (Bars.IsFirstBarOfSession)
+            {
+                // Nouvelle session : réinitialiser les compteurs
+                _barCount  = 1;
+                _sessHigh  = High[0];
+                _sessLow   = Low[0];
+                _sessOpen  = Open[0];
+                _sessStart = Time[0].ToString("HH:mm");
+            }
+            else
+            {
+                _barCount++;
+                if (High[0] > _sessHigh) _sessHigh = High[0];
+                if (Low[0]  < _sessLow)  _sessLow  = Low[0];
+            }
+
             try
             {
-                // ── Données de la barre courante ──────────────
+                // ── Données barre courante ────────────────────
                 double last    = Close[0];
                 double open    = Open[0];
                 double high    = High[0];
@@ -80,6 +103,12 @@ namespace NinjaTrader.NinjaScript.Indicators
                 double chg     = last - prev;
                 double chgPct  = prev != 0 ? (chg / prev) * 100.0 : 0.0;
                 string chgSign = chg >= 0 ? "+" : "";
+
+                // ── Données session ───────────────────────────
+                double sessRange   = _sessHigh - _sessLow;
+                double sessChange  = last - _sessOpen;
+                double sessChgPct  = _sessOpen != 0 ? (sessChange / _sessOpen) * 100.0 : 0.0;
+                string sessChgSign = sessChange >= 0 ? "+" : "";
 
                 // ── ATR ───────────────────────────────────────
                 string atrStr = "";
@@ -106,37 +135,42 @@ namespace NinjaTrader.NinjaScript.Indicators
                 // ── Instrument / Timeframe ────────────────────
                 string instr = Instrument.FullName;
                 string tf    = BarsPeriod.ToString();
-
-                // ── Tick size ─────────────────────────────────
-                double tick = Instrument.MasterInstrument.TickSize;
+                double tick  = Instrument.MasterInstrument.TickSize;
 
                 // ── Construction du texte ─────────────────────
                 string line = "  " + new string('-', 34) + "\n";
 
                 string text =
-                    "  === CALIBRATION PANEL ===\n" +
+                    "  === CALIBRATION PANEL v2 ===\n" +
                     line +
                     string.Format("  INSTRUMENT : {0}\n", instr) +
                     string.Format("  TIMEFRAME  : {0}\n", tf) +
+                    string.Format("  DATE       : {0}   {1}\n", barDate, barTime) +
                     line +
-                    string.Format("  DATE       : {0}\n", barDate) +
-                    string.Format("  BAR TIME   : {0}\n", barTime) +
-                    line +
-                    string.Format("  OPEN       : {0:F2}\n", open) +
-                    string.Format("  HIGH       : {0:F2}\n", high) +
-                    string.Format("  LOW        : {0:F2}\n", low) +
-                    string.Format("  LAST       : {0:F2}  ({1}{2:F2} / {1}{3:F2}%)\n",
+                    "  -- BARRE COURANTE --\n" +
+                    string.Format("  OPEN  : {0:F2}\n", open) +
+                    string.Format("  HIGH  : {0:F2}\n", high) +
+                    string.Format("  LOW   : {0:F2}\n", low) +
+                    string.Format("  LAST  : {0:F2}  ({1}{2:F2} / {1}{3:F2}%)\n",
                         last, chgSign, chg, chgPct) +
+                    line +
+                    string.Format("  -- DEPUIS OUVERTURE SESSION ({0}) --\n", _sessStart) +
+                    string.Format("  BARRE #    : {0}\n", _barCount) +
+                    string.Format("  OPEN SES.  : {0:F2}\n", _sessOpen) +
+                    string.Format("  HIGH MAX   : {0:F2}  << SAISIR DANS STREAMLIT\n", _sessHigh) +
+                    string.Format("  LOW MIN    : {0:F2}  << SAISIR DANS STREAMLIT\n", _sessLow) +
+                    string.Format("  RANGE      : {0:F2} pts\n", sessRange) +
+                    string.Format("  VARIATION  : {0}{1:F2} pts ({0}{2:F2}%)\n",
+                        sessChgSign, sessChange, sessChgPct) +
                     line +
                     atrStr +
                     volStr +
                     string.Format("  TICK SIZE  : {0:F2}\n", tick) +
                     line +
                     string.Format("  SERVER     : {0}\n", srvTime) +
-                    "  ==========================";
+                    "  ==============================";
 
-                // ── Affichage avec Draw.TextFixed ─────────────
-                // Note: null = police par défaut NT8 (compatible toutes versions)
+                // ── Affichage ─────────────────────────────────
                 Draw.TextFixed(
                     this,
                     "CalibrationPanel_Text",
