@@ -105,31 +105,60 @@ def save_history(channels: dict):
 
 
 def add_channels_to_history(calibration_results: dict):
-    """Ajoute les résultats de calibration à l'historique."""
+    """Ajoute les résultats de calibration à l'historique (batch)."""
     history = load_history()
     now = datetime.now().isoformat()
     for status in ["activated", "short_test", "rejected"]:
         for ch in calibration_results.get(status, []):
-            username = ch.get("username", "")
-            if not username:
-                continue
-            market = ch.get("market", "custom")
-            history[username] = {
-                "username": username,
-                "title": ch.get("title", username),
-                "market": market,
-                "status": status,
-                "score": ch.get("score", 0),
-                "winrate": ch.get("winrate", ch.get("score", 0)),
-                "signals_count": ch.get("signals_count", 0),
-                "metrics": ch.get("metrics", {}),
-                "members": ch.get("members", 0),
-                "description": ch.get("description", ""),
-                "reason": ch.get("reason", ""),
-                "date_calibration": now,
-            }
+            save_single_channel(ch, history, now)
     save_history(history)
     return history
+
+
+def save_single_channel(ch: dict, history: dict = None, now: str = None):
+    """Sauvegarde un seul canal dans l'historique (sauvegarde progressive)."""
+    if history is None:
+        history = load_history()
+    if now is None:
+        now = datetime.now().isoformat()
+    username = ch.get("username", "")
+    if not username:
+        return history
+    history[username] = {
+        "username": username,
+        "title": ch.get("title", username),
+        "market": ch.get("market", "custom"),
+        "status": ch.get("status", "rejected"),
+        "score": ch.get("score", 0),
+        "winrate": ch.get("winrate", ch.get("score", 0)),
+        "signals_count": ch.get("signals_count", 0),
+        "metrics": ch.get("metrics", {}),
+        "members": ch.get("members", 0),
+        "description": ch.get("description", ""),
+        "reason": ch.get("reason", ""),
+        "date_calibration": ch.get("date_calibration", now),
+    }
+    save_history(history)
+    return history
+
+
+def winrate_freshness(date_calibration_str: str) -> tuple:
+    """Retourne (label, couleur) selon la fraîcheur du winrate."""
+    if not date_calibration_str:
+        return "❓ Jamais calibré", "gray"
+    try:
+        dt = datetime.fromisoformat(date_calibration_str)
+        hours = (datetime.now() - dt).total_seconds() / 3600
+        if hours < 6:
+            return f"🟢 Frais ({int(hours)}h)", "green"
+        elif hours < 24:
+            return f"🟡 Récent ({int(hours)}h)", "orange"
+        elif hours < 72:
+            return f"🟠 Vieux ({int(hours/24)}j)", "orange"
+        else:
+            return f"🔴 Obsolète ({int(hours/24)}j) — Recalibrer", "red"
+    except Exception:
+        return "❓ Date inconnue", "gray"
 
 
 def remove_channel_from_history(username: str):
@@ -650,48 +679,77 @@ elif st.session_state.current_step == 4:
                 st.rerun()
 
     else:
-        # Bouton de lancement
-        if st.button("🚀 DÉMARRER LA CALIBRATION", type="primary", use_container_width=True):
-            progress_bar = st.progress(0)
-            status_text = st.empty()
+        # Préparer la liste des canaux
+        all_channels = []
+        for market, channels in st.session_state.selected_channels.items():
+            for channel in channels:
+                channel["market"] = market
+                all_channels.append(channel)
 
-            all_channels = []
-            for market, channels in st.session_state.selected_channels.items():
-                for channel in channels:
-                    channel["market"] = market
-                    all_channels.append(channel)
+        # Vérifier lesquels sont déjà calibrés
+        history = load_history()
+        already_done = {u for u in history}
+        to_calibrate = [ch for ch in all_channels if ch.get("username") not in already_done]
+        already_calibrated_count = len(all_channels) - len(to_calibrate)
 
-            total_channels = len(all_channels)
-            config = {"max_messages": target_messages, "min_messages": min_messages}
+        if already_calibrated_count > 0:
+            st.info(f"⏭️ {already_calibrated_count} canal(aux) déjà calibré(s) — seront ignorés")
 
-            status_text.text(f"🔄 Calibration de {total_channels} canal(aux) en cours...")
-
-            try:
-                results = asyncio.run(calibrate_channels_batch(all_channels, config))
-                progress_bar.progress(1.0)
-                status_text.text("✅ Calibration terminée!")
-
-                # Enrichir les résultats avec winrate
-                for status in ["activated", "short_test", "rejected"]:
-                    for channel in results[status]:
-                        metrics = channel.get("metrics", {})
-                        channel["winrate"] = int(channel.get("score", 0))
-                        channel["signals_count"] = metrics.get("total_signals", 0)
-
-                # Sauvegarder dans l'historique
-                add_channels_to_history(results)
-
-                st.session_state.calibration_results = results
-                st.success(
-                    f"🎉 Terminé: {len(results['activated'])} activés, "
-                    f"{len(results['short_test'])} en test, "
-                    f"{len(results['rejected'])} rejetés — Sauvegardé dans l'historique ✅"
-                )
+        if not to_calibrate:
+            st.success("✅ Tous les canaux sont déjà calibrés ! Consultez 'Mes Canaux' dans l'accueil.")
+            if st.button("🏠 Retour à l'accueil", use_container_width=True):
+                st.session_state.current_step = 1
                 st.rerun()
+        else:
+            st.info(f"📋 {len(to_calibrate)} canal(aux) à calibrer — sauvegarde progressive activée")
 
-            except Exception as e:
-                st.error(f"❌ Erreur lors de la calibration: {str(e)}")
-                st.info("💡 Vérifiez votre connexion Telegram et réessayez")
+            # Bouton de lancement
+            if st.button("🚀 DÉMARRER LA CALIBRATION", type="primary", use_container_width=True):
+                progress_bar = st.progress(0)
+                status_text = st.empty()
+                log_area = st.empty()
+                done_count = [0]  # Compteur mutable pour le callback
+
+                config = {"max_messages": target_messages, "min_messages": min_messages}
+
+                # Callback de sauvegarde progressive
+                def on_channel_done(channel_result):
+                    save_single_channel(channel_result)
+                    done_count[0] += 1
+                    pct = done_count[0] / len(to_calibrate)
+                    progress_bar.progress(pct)
+                    status_icon = {"activated": "✅", "short_test": "⏳", "rejected": "❌"}.get(
+                        channel_result.get("status", ""), "❓"
+                    )
+                    log_area.info(
+                        f"{status_icon} [{done_count[0]}/{len(to_calibrate)}] "
+                        f"{channel_result.get('title', '?')} — "
+                        f"Score: {channel_result.get('score', 0)}/100 — Sauvegardé ✅"
+                    )
+
+                status_text.text(f"🔄 Calibration de {len(to_calibrate)} canal(aux) en cours...")
+
+                try:
+                    results = asyncio.run(calibrate_channels_batch(
+                        to_calibrate,
+                        config,
+                        on_channel_done=on_channel_done,
+                        skip_usernames=already_done
+                    ))
+                    progress_bar.progress(1.0)
+                    status_text.text("✅ Calibration terminée!")
+
+                    st.session_state.calibration_results = results
+                    st.success(
+                        f"🎉 Terminé: {len(results['activated'])} activés, "
+                        f"{len(results['short_test'])} en test, "
+                        f"{len(results['rejected'])} rejetés — Tout sauvegardé ✅"
+                    )
+                    st.rerun()
+
+                except Exception as e:
+                    st.error(f"❌ Erreur lors de la calibration: {str(e)}")
+                    st.info("💡 Les canaux déjà traités ont été sauvegardés. Vous pouvez reprendre.")
 
 # ═══════════════════════════════════════════════════════════════
 # ÉTAPE 5 : RÉSULTATS ET TRADING

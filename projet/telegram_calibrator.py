@@ -343,14 +343,21 @@ async def join_channel(client: TelegramClient, username: str) -> Tuple[bool, str
             return False, f"❌ Erreur: {str(e)}"
 
 
-async def calibrate_channels_batch(channels: List[Dict], config: Dict = None) -> Dict:
+async def calibrate_channels_batch(
+    channels: List[Dict],
+    config: Dict = None,
+    on_channel_done=None,
+    skip_usernames: set = None
+) -> Dict:
     """
-    Calibre plusieurs canaux en batch
+    Calibre plusieurs canaux en batch avec sauvegarde progressive.
     VERSION UNIVERSELLE - Utilise la session de l'utilisateur connecté
     
     Args:
         channels: Liste de canaux à calibrer
         config: Configuration optionnelle
+        on_channel_done: Callback appelé après chaque canal (channel_result: dict)
+        skip_usernames: Set de usernames déjà calibrés à ignorer
         
     Returns:
         Résultats groupés par statut
@@ -368,6 +375,7 @@ async def calibrate_channels_batch(channels: List[Dict], config: Dict = None) ->
         api_hash = st.secrets.get("TELEGRAM_API_HASH", "")
     
     session_string = st.session_state.tg_session
+    skip_usernames = skip_usernames or set()
     
     print(f"✅ Utilisation de la session utilisateur (SaaS mode)")
     
@@ -379,21 +387,35 @@ async def calibrate_channels_batch(channels: List[Dict], config: Dict = None) ->
     
     async with TelegramClient(StringSession(session_string), api_id, api_hash) as client:
         for channel in channels:
+            username = channel.get('username', '')
+            
+            # Skip les canaux déjà calibrés
+            if username in skip_usernames:
+                print(f"⏭️ Skip (déjà calibré): @{username}")
+                continue
+            
             print(f"\n{'='*60}")
-            print(f"📡 Calibration: {channel['title']} (@{channel['username']})")
+            print(f"📡 Calibration: {channel['title']} (@{username})")
             print(f"{'='*60}")
             
             result = await calibrate_channel(client, channel, config)
             
+            # Enrichir avec winrate et signals_count
+            metrics = result.get('metrics', {})
+            result['winrate'] = int(result.get('score', 0))
+            result['signals_count'] = metrics.get('total_signals', 0)
+            result['date_calibration'] = datetime.now().isoformat()
+            
             # Ajouter les infos du canal au résultat
-            channel_result = {
-                **channel,
-                **result
-            }
+            channel_result = {**channel, **result}
             
             # Classer par statut
             status = result['status']
             results[status].append(channel_result)
+            
+            # Callback de sauvegarde progressive (appelé immédiatement)
+            if on_channel_done:
+                on_channel_done(channel_result)
             
             # Petit délai entre les canaux
             await asyncio.sleep(1)
