@@ -142,7 +142,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     text,
                     GetTextPosition(),
                     Brushes.Cyan,
-                    new SimpleFont("Courier New", FontSize),
+                    new NinjaTrader.Gui.SimpleFont("Courier New", FontSize),
                     Brushes.Transparent,
                     Brushes.Black,
                     220
@@ -156,7 +156,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     "CalibrationPanel ERROR:\n" + ex.Message,
                     TextPosition.TopLeft,
                     Brushes.Red,
-                    new SimpleFont("Courier New", 11),
+                    new NinjaTrader.Gui.SimpleFont("Courier New", 11),
                     Brushes.Transparent,
                     Brushes.Black,
                     200
