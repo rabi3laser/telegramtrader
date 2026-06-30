@@ -20,3 +20,7 @@ python-dotenv>=1.0.0
 
 # Utilitaires
 requests>=2.31.0
+
+# OCR - Lecture automatique captures NinjaTrader
+Pillow>=10.0.0
+pytesseract>=0.3.10
