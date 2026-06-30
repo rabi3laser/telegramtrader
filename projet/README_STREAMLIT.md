@@ -1,30 +1,52 @@
-# 🚀 INTERFACE WEB STREAMLIT - GUIDE COMPLET
+# 🚀 INTERFACE WEB STREAMLIT - GUIDE COMPLET v3.0
 
 ## 📋 Vue d'ensemble
 
-Interface web optimisée pour la recherche et calibration de canaux Telegram de trading.
+Interface web optimisée pour la recherche, calibration et gestion de canaux Telegram de trading.
 
 ### ✨ Fonctionnalités principales
 
-1. **🔍 Recherche intelligente**
+1. **🔑 Connexion Telegram sécurisée**
+   - Authentification par numéro de téléphone + code SMS
+   - Session persistante via StringSession
+
+2. **📚 Mes Canaux**
+   - Affichage de tous vos canaux déjà calibrés
+   - Winrates et scores visibles immédiatement
+   - Recalibration possible à tout moment
+   - Export/Import JSON pour sauvegarder entre sessions
+
+3. **🔍 Recherche de Nouveaux Canaux**
    - Recherche par marché prédéfini (Gold, Nasdaq, Crude Oil, S&P 500)
    - Recherche personnalisée avec vos propres mots-clés
-   - Mots-clés enrichis multi-langues (20+ par marché)
-   - Recherche RÉELLE via Telegram API (pas de données de démo)
+   - Indication des canaux déjà calibrés dans les résultats
 
-2. **✅ Sélection manuelle**
-   - Choisissez uniquement les canaux qui vous intéressent
-   - Évitez le gaspillage de ressources OCR
+4. **⚙️ Calibration**
+   - Analyse des messages Telegram via votre session personnelle
+   - Calcul du score (0-100) et du winrate
+   - Sauvegarde automatique dans `calibration_history.json`
 
-3. **⚙️ Calibration optimisée**
-   - OCR uniquement sur les canaux sélectionnés
-   - Analyse de performance (winrate, nombre de signaux)
-   - Classification automatique (Activé/Test/Rejeté)
+5. **🔧 Mode Pro**
+   - Paramètres avancés de recherche et calibration
 
-4. **🔧 Mode Pro**
-   - Paramètres avancés de recherche
-   - Contrôle fin de la calibration
-   - Pour utilisateurs expérimentés
+---
+
+## 🏗️ Architecture
+
+```
+projet/
+├── pipeline_ui_optimized.py      # Interface Streamlit principale (v3.0)
+├── telegram_authenticator.py     # Authentification Telegram (SMS)
+├── telegram_search.py            # Module de recherche Telegram
+├── telegram_calibrator.py        # Module de calibration
+├── signal_detector.py            # Détection de signaux trading
+├── calibration_history.json      # Base de données locale des canaux calibrés
+├── requirements.txt              # Dépendances Python
+├── .streamlit/
+│   ├── secrets.toml              # Secrets (NE PAS COMMITER)
+│   └── secrets.toml.example      # Exemple de configuration
+└── README_STREAMLIT.md           # Ce fichier
+```
 
 ---
 
@@ -37,49 +59,33 @@ cd C:\Users\Admin\Desktop\projet
 pip install -r requirements.txt
 ```
 
-### 2. Générer votre StringSession Telegram
-
-**IMPORTANT:** Vous devez faire ceci UNE SEULE FOIS localement.
-
-```bash
-python generate_session.py
-```
-
-Suivez les instructions :
-1. Entrez votre numéro de téléphone : `+212648955924`
-2. Ouvrez l'app Telegram pour voir le code (PAS par SMS !)
-3. Entrez le code dans le terminal
-4. **COPIEZ** la StringSession affichée
-
-### 3. Configuration locale (pour tester)
+### 2. Configuration des Secrets
 
 Créez le fichier `.streamlit/secrets.toml` :
 
 ```toml
-TELEGRAM_API_ID = "29149167"
-TELEGRAM_API_HASH = "d1942abd0a5a7c764d96a8a4b640893e"
-TELEGRAM_STRING_SESSION = "VOTRE_STRING_SESSION_ICI"
+[telegram]
+api_id = "26848264"
+api_hash = "da038e8c2be2ee1530bbd75fea679ff6"
 ```
 
-### 4. Lancer l'application
+### 3. Lancer l'application
 
 ```bash
 streamlit run pipeline_ui_optimized.py
 ```
 
-L'interface s'ouvrira automatiquement dans votre navigateur : `http://localhost:8501`
+L'interface s'ouvrira automatiquement : `http://localhost:8501`
 
 ---
 
 ## ☁️ Déploiement sur Streamlit Cloud
 
-### Étape 1: Préparer GitHub
+### Étape 1: Pousser sur GitHub
 
 ```bash
-# Ajouter les nouveaux fichiers
-git add pipeline_ui_optimized.py telegram_search.py requirements.txt
-git add .streamlit/secrets.toml.example GUIDE_TELEGRAM_SETUP.md
-git commit -m "Interface Streamlit avec recherche Telegram réelle"
+git add .
+git commit -m "Mise à jour interface"
 git push origin main
 ```
 
@@ -95,65 +101,99 @@ git push origin main
 
 ### Étape 3: Configurer les Secrets
 
-Dans Streamlit Cloud :
-1. Allez dans **Settings** → **Secrets**
-2. Collez :
+Dans Streamlit Cloud → Settings → Secrets :
 
 ```toml
-TELEGRAM_API_ID = "29149167"
-TELEGRAM_API_HASH = "d1942abd0a5a7c764d96a8a4b640893e"
-TELEGRAM_STRING_SESSION = "VOTRE_STRING_SESSION_GENEREE"
+[telegram]
+api_id = "26848264"
+api_hash = "da038e8c2be2ee1530bbd75fea679ff6"
 ```
-
-3. Cliquez sur **Save**
-4. L'application redémarrera automatiquement
 
 ---
 
-## 🎯 Utilisation
+## 🎯 Workflow Complet
 
-### Workflow en 4 étapes
+### Étape 0 : Connexion Telegram
+- Entrez votre numéro de téléphone (format international : +33...)
+- Recevez le code par SMS
+- Entrez le code → Connexion établie
 
-#### 1️⃣ Recherche de canaux
+### Étape 1 : Accueil - Mes Canaux
+- Visualisez tous vos canaux déjà calibrés avec leurs **winrates**
+- Couleurs : 🟢 ≥70% | 🟡 50-70% | 🔴 <50%
+- Bouton **🔄 Recalibrer** pour mettre à jour un canal
+- Bouton **🗑️** pour supprimer un canal de la liste
+- **Export JSON** pour sauvegarder vos données
+- **Import JSON** pour restaurer vos données
 
-**Mode Marchés Prédéfinis:**
-- Sélectionnez un marché (Gold, Nasdaq, Crude Oil, S&P 500)
-- Cliquez sur "LANCER LA RECHERCHE"
-- Les résultats utilisent des mots-clés enrichis :
-  - **Gold:** gold, XAUUSD, XAU, or, lingot, gold signals, etc.
-  - **Nasdaq:** nasdaq, NQ, MNQ, nasdaq 100, QQQ, tech futures, etc.
-  - **Crude Oil:** crude oil, CL, MCL, WTI, oil signals, pétrole, etc.
-  - **S&P 500:** S&P 500, ES, MES, SPX, SPY, indices, etc.
-
-**Mode Recherche Personnalisée:**
-- Entrez vos propres mots-clés (un par ligne)
-- Exemple pour Bitcoin :
-  ```
-  bitcoin
-  BTC
-  crypto signals
-  bitcoin trading
-  ```
-- Recherchez N'IMPORTE QUEL marché !
-
-#### 2️⃣ Sélection manuelle
-
+### Étape 2 : Recherche de Nouveaux Canaux
+- Sélectionnez un marché ou entrez des mots-clés personnalisés
+- Les canaux déjà calibrés sont marqués 📌 et non sélectionnables
 - Cochez les canaux qui vous intéressent
-- Visualisez : membres, activité, description
-- Badge ✅ pour les canaux vérifiés
 
-#### 3️⃣ Calibration
+### Étape 3 : Sélection
+- Validez votre sélection
+- Supprimez les canaux indésirables
+- Estimation du temps de calibration
 
-- OCR uniquement sur les canaux sélectionnés
-- Analyse de performance
-- Classification automatique
+### Étape 4 : Calibration
+- **Déclenché manuellement** par l'utilisateur
+- Utilise votre session Telegram personnelle
+- Analyse les messages et calcule le score/winrate
+- **Sauvegarde automatique** dans `calibration_history.json`
 
-#### 4️⃣ Résultats
+### Étape 5 : Résultats
+- Canaux activés (score ≥ 70)
+- Canaux en test court (score 50-70)
+- Canaux rejetés avec raison détaillée
+- Export CSV du rapport complet
 
-- Canaux activés (prêts pour trading)
-- Canaux en test court
-- Canaux rejetés
-- Téléchargement du rapport CSV
+---
+
+## 💾 Persistance des Données
+
+### Fichier `calibration_history.json`
+
+Ce fichier stocke tous vos canaux calibrés :
+
+```json
+{
+  "channels": {
+    "gold_signals_pro": {
+      "username": "gold_signals_pro",
+      "title": "Gold Signals Pro",
+      "market": "gold_mgc",
+      "status": "activated",
+      "score": 82,
+      "winrate": 82,
+      "signals_count": 25,
+      "metrics": {
+        "total_messages": 200,
+        "total_signals": 25,
+        "signals_per_day": 2.5,
+        "avg_quality": 7.2,
+        "hours_since_last_signal": 3.5
+      },
+      "date_calibration": "2026-06-30T02:50:00"
+    }
+  },
+  "last_updated": "2026-06-30T02:50:00"
+}
+```
+
+### ⚠️ Important pour Streamlit Cloud
+
+Sur Streamlit Cloud, le système de fichiers est **éphémère** :
+- Le fichier `calibration_history.json` est réinitialisé à chaque redéploiement
+- **Solution** : Utilisez le bouton **📥 Exporter mes canaux (JSON)** pour sauvegarder
+- Puis **📤 Importer canaux (JSON)** pour restaurer après redéploiement
+
+### Pour la Production
+
+Pour une persistance permanente, envisagez :
+- **Option A** : Streamlit Community Cloud + fichier JSON exporté/importé manuellement
+- **Option B** : Base de données externe (Supabase, Firebase, etc.)
+- **Option C** : Déploiement local sur votre machine (persistance native)
 
 ---
 
@@ -161,136 +201,65 @@ TELEGRAM_STRING_SESSION = "VOTRE_STRING_SESSION_GENEREE"
 
 Activez le Mode Pro dans la sidebar pour :
 
-**Recherche avancée:**
+**Recherche avancée :**
 - Filtres de membres (min/max)
-- Mots-clés personnalisés supplémentaires
 
-**Calibration avancée:**
-- Nombre de messages à analyser
-- Critères de winrate minimum
-- Paramètres OCR (batch size, timeout)
+**Calibration avancée :**
+- Nombre de messages à analyser (min/cible)
+- Seuil de signaux minimum
+- Winrate minimum requis
 
 ---
 
-## 📊 Exemples de recherche
+## 📊 Interprétation des Scores
 
-### Recherche Gold (mots-clés enrichis)
+| Score | Statut | Signification |
+|-------|--------|---------------|
+| ≥ 70 | ✅ Activé | Canal de qualité, prêt pour le trading |
+| 50-69 | ⏳ Test Court | Canal prometteur, à surveiller |
+| < 50 | ❌ Rejeté | Canal insuffisant |
 
-```
-Anglais: gold, gold signals, XAUUSD, XAU, xau/usd, MGC, GC futures, 
-         gold trading, gold forex, gold analysis
+### Critères de scoring (0-100 points)
 
-Français: or, or signals, lingot, analyse or, signaux or, trading or
-```
-
-### Recherche Nasdaq (mots-clés enrichis)
-
-```
-Anglais: nasdaq, NQ, MNQ, nasdaq 100, QQQ, tech futures, 
-         nasdaq signals, tech index
-
-Français: nasdaq signaux, indices tech
-```
-
-### Recherche personnalisée Bitcoin
-
-```
-bitcoin
-BTC
-crypto signals
-bitcoin trading
-cryptocurrency
-BTC/USD
-bitcoin analysis
-```
+| Critère | Poids | Description |
+|---------|-------|-------------|
+| Nombre de signaux | 30% | ≥30 signaux = 30 pts |
+| Fréquence | 25% | ≥3 signaux/jour = 25 pts |
+| Qualité moyenne | 20% | Note /10 des signaux |
+| Récence | 15% | Dernier signal < 6h = 15 pts |
+| Diversité marchés | 5% | Nombre de marchés couverts |
+| Membres | 5% | ≥5000 membres = 5 pts |
 
 ---
 
 ## 🚨 Dépannage
 
-### "Erreur lors de la recherche"
+### "Veuillez d'abord vous connecter à Telegram"
+➡️ Retournez à l'étape 0 et reconnectez-vous
 
-➡️ **Vérifiez votre StringSession**
-- Dans Streamlit Cloud : Settings → Secrets
-- Localement : `.streamlit/secrets.toml`
-- La StringSession doit être valide et complète
+### "Erreur lors de la recherche"
+➡️ Vérifiez votre connexion Telegram (étape 0)
 
 ### "Aucun canal trouvé"
+➡️ Essayez d'autres mots-clés ou le mode "Recherche personnalisée"
 
-➡️ **Essayez d'autres mots-clés**
-- Utilisez le mode "Recherche personnalisée"
-- Ajoutez des variantes (anglais + français)
-- Élargissez les critères
+### "Calibration échoue"
+➡️ Vérifiez que vous êtes membre du canal à calibrer
 
-### "L'application ne démarre pas"
-
-➡️ **Vérifiez les dépendances**
-```bash
-pip install -r requirements.txt
-```
-
----
-
-## 📁 Structure des fichiers
-
-```
-projet/
-├── pipeline_ui_optimized.py      # Interface Streamlit principale
-├── telegram_search.py            # Module de recherche Telegram
-├── generate_session.py           # Générateur de StringSession
-├── requirements.txt              # Dépendances Python
-├── .streamlit/
-│   └── secrets.toml.example      # Exemple de configuration
-├── GUIDE_TELEGRAM_SETUP.md       # Guide configuration Telegram
-├── INSTRUCTIONS_SESSION.md       # Instructions StringSession
-└── README_STREAMLIT.md           # Ce fichier
-```
+### "Mes canaux ont disparu après redéploiement"
+➡️ Exportez vos canaux en JSON avant chaque redéploiement et réimportez-les
 
 ---
 
 ## 🔐 Sécurité
 
-**IMPORTANT:**
-- ❌ Ne commitez JAMAIS votre StringSession sur GitHub
-- ❌ Ne partagez JAMAIS votre StringSession publiquement
+- ❌ Ne commitez JAMAIS votre `secrets.toml` sur GitHub
+- ❌ Ne partagez JAMAIS votre session Telegram
 - ✅ Utilisez les Secrets Streamlit Cloud
-- ✅ Ajoutez `.streamlit/secrets.toml` au `.gitignore`
+- ✅ Le fichier `.streamlit/secrets.toml` est dans `.gitignore`
+- ✅ `calibration_history.json` ne contient pas de données sensibles
 
 ---
 
-## 🎉 Avantages de cette solution
-
-### ✅ Recherche réelle
-- Pas de données de démo
-- Résultats en temps réel depuis Telegram
-- Mots-clés enrichis multi-langues
-
-### ✅ Flexibilité totale
-- 4 marchés prédéfinis
-- Recherche personnalisée pour N'IMPORTE QUEL marché
-- Mode Pro pour utilisateurs avancés
-
-### ✅ Optimisation des ressources
-- OCR uniquement sur canaux sélectionnés
-- Pas de gaspillage de temps/ressources
-- Workflow en 4 étapes claires
-
-### ✅ Déploiement facile
-- Streamlit Cloud gratuit
-- Configuration simple via Secrets
-- Accessible depuis n'importe où
-
----
-
-## 📞 Support
-
-Pour toute question :
-1. Consultez `GUIDE_TELEGRAM_SETUP.md`
-2. Consultez `INSTRUCTIONS_SESSION.md`
-3. Vérifiez les logs Streamlit Cloud
-
----
-
-**Version:** 2.0 - Optimisée avec recherche Telegram réelle  
-**Date:** 28/06/2026  
-**Auteur:** Pipeline Trading Team
+**Version :** 3.0 - Mes Canaux + Persistance + Navigation complète
+**Date :** 30/06/2026
