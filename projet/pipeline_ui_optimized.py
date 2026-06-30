@@ -127,6 +127,11 @@ if st.session_state.current_step == 0:
 elif st.session_state.current_step == 1:
     st.header("🔍 Étape 1: Recherche de Canaux")
     
+    # Bouton retour à l'authentification
+    if st.button("🔑 Se déconnecter / Changer de compte", use_container_width=False):
+        from telegram_authenticator import _logout
+        _logout()
+    
     st.info("💡 Recherche rapide sans OCR - Seulement les informations de base")
     
     # Mode de recherche
