@@ -33,14 +33,14 @@ namespace NinjaTrader.NinjaScript.Indicators
         {
             if (State == State.SetDefaults)
             {
-                Description  = "Panneau OHLC pour calibration Streamlit - Compatible toutes versions NT8";
-                Name         = "CalibrationPanel";
-                Calculate    = Calculate.OnEachTick;
-                IsOverlay    = true;
-                DisplayInDataBox    = false;
-                DrawOnPricePanel    = true;
-                PaintPriceMarkers   = false;
-                IsSuspendedWhileInactive = false;
+                Description               = "Panneau OHLC pour calibration Streamlit - Compatible toutes versions NT8";
+                Name                      = "CalibrationPanel";
+                Calculate                 = Calculate.OnEachTick;
+                IsOverlay                 = true;
+                DisplayInDataBox          = false;
+                DrawOnPricePanel          = true;
+                PaintPriceMarkers         = false;
+                IsSuspendedWhileInactive  = false;
 
                 // Paramètres par défaut
                 PanelPosition = TextPosition.TopLeft;
@@ -76,14 +76,14 @@ namespace NinjaTrader.NinjaScript.Indicators
                     try
                     {
                         double atr = ATR(ATRPeriod)[0];
-                        atrStr = string.Format("ATR({0})    : {1:F2}\n", ATRPeriod, atr);
+                        atrStr = string.Format("  ATR({0})    : {1:F2}\n", ATRPeriod, atr);
                     }
                     catch { }
                 }
 
                 // ── Volume ────────────────────────────────────
                 string volStr = ShowVolume
-                    ? string.Format("VOLUME     : {0:N0}\n", vol)
+                    ? string.Format("  VOLUME     : {0:N0}\n", vol)
                     : "";
 
                 // ── Heure / Date ──────────────────────────────
@@ -99,10 +99,11 @@ namespace NinjaTrader.NinjaScript.Indicators
                 double tick = Instrument.MasterInstrument.TickSize;
 
                 // ── Construction du texte ─────────────────────
-                string line = "─────────────────────────────────────\n";
+                string line = "  " + new string('-', 34) + "\n";
 
                 string text =
-                    "╔═══ CALIBRATION PANEL ══════════════╗\n" +
+                    "  === CALIBRATION PANEL ===\n" +
+                    line +
                     string.Format("  INSTRUMENT : {0}\n", instr) +
                     string.Format("  TIMEFRAME  : {0}\n", tf) +
                     line +
@@ -120,7 +121,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     string.Format("  TICK SIZE  : {0:F2}\n", tick) +
                     line +
                     string.Format("  SERVER     : {0}\n", srvTime) +
-                    "╚════════════════════════════════════╝";
+                    "  ==========================";
 
                 // ── Affichage avec Draw.TextFixed ─────────────
                 Draw.TextFixed(
@@ -137,7 +138,6 @@ namespace NinjaTrader.NinjaScript.Indicators
             }
             catch (Exception ex)
             {
-                // Afficher l'erreur pour le débogage
                 Draw.TextFixed(
                     this,
                     "CalibrationPanel_Text",
@@ -177,69 +177,3 @@ namespace NinjaTrader.NinjaScript.Indicators
         public bool ShowVolume { get; set; }
     }
 }
-
-#region NinjaScript generated code. Neither change nor remove.
-
-namespace NinjaTrader.NinjaScript.Indicators
-{
-    public partial class Indicator : NinjaTrader.Gui.NinjaScript.IndicatorRenderBase
-    {
-        private CalibrationPanel[] cacheCalibrationPanel;
-
-        public CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
-        {
-            return CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
-        }
-
-        public CalibrationPanel CalibrationPanel(ISeries<double> input, TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
-        {
-            if (cacheCalibrationPanel != null)
-                for (int idx = 0; idx < cacheCalibrationPanel.Length; idx++)
-                    if (cacheCalibrationPanel[idx] != null
-                        && cacheCalibrationPanel[idx].PanelPosition == panelPosition
-                        && cacheCalibrationPanel[idx].FontSize == fontSize
-                        && cacheCalibrationPanel[idx].ShowATR == showATR
-                        && cacheCalibrationPanel[idx].ATRPeriod == aTRPeriod
-                        && cacheCalibrationPanel[idx].ShowVolume == showVolume
-                        && cacheCalibrationPanel[idx].EqualsInput(input))
-                        return cacheCalibrationPanel[idx];
-
-            return CacheIndicator<CalibrationPanel>(
-                new CalibrationPanel()
-                {
-                    PanelPosition = panelPosition,
-                    FontSize      = fontSize,
-                    ShowATR       = showATR,
-                    ATRPeriod     = aTRPeriod,
-                    ShowVolume    = showVolume
-                },
-                input,
-                ref cacheCalibrationPanel
-            );
-        }
-    }
-}
-
-namespace NinjaTrader.NinjaScript.MarketAnalyzerColumns
-{
-    public partial class MarketAnalyzerColumn : MarketAnalyzerColumnBase
-    {
-        public Indicators.CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
-        {
-            return indicator.CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
-        }
-    }
-}
-
-namespace NinjaTrader.NinjaScript.Strategies
-{
-    public partial class Strategy : NinjaTrader.Gui.NinjaScript.StrategyRenderBase
-    {
-        public Indicators.CalibrationPanel CalibrationPanel(TextPosition panelPosition, int fontSize, bool showATR, int aTRPeriod, bool showVolume)
-        {
-            return indicator.CalibrationPanel(Input, panelPosition, fontSize, showATR, aTRPeriod, showVolume);
-        }
-    }
-}
-
-#endregion
