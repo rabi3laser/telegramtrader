@@ -261,32 +261,25 @@ def determine_status(
     score: float
 ) -> str:
     """
-    Détermine le statut du canal basé sur les critères
+    Détermine le statut du canal basé principalement sur le score global.
+    Le score (0-100) intègre déjà tous les critères pondérés.
     
     Returns:
         'activated', 'short_test', ou 'rejected'
     """
-    criteria_activated = CALIBRATION_CRITERIA['activated']
-    criteria_test = CALIBRATION_CRITERIA['short_test']
+    # Critères minimaux absolus (éliminatoires)
+    if total_signals < CALIBRATION_CRITERIA['short_test']['min_signals']:
+        return 'rejected'
+    if avg_quality < CALIBRATION_CRITERIA['short_test']['min_quality']:
+        return 'rejected'
     
-    # Vérifier pour ACTIVATED
-    if (total_signals >= criteria_activated['min_signals'] and
-        signals_per_day >= criteria_activated['min_signals_per_day'] and
-        avg_quality >= criteria_activated['min_quality'] and
-        hours_since_last <= criteria_activated['max_hours_since_last'] and
-        score >= criteria_activated['min_score']):
+    # Décision basée sur le score global
+    if score >= CALIBRATION_CRITERIA['activated']['min_score']:
         return 'activated'
-    
-    # Vérifier pour SHORT_TEST
-    if (total_signals >= criteria_test['min_signals'] and
-        signals_per_day >= criteria_test['min_signals_per_day'] and
-        avg_quality >= criteria_test['min_quality'] and
-        hours_since_last <= criteria_test['max_hours_since_last'] and
-        score >= criteria_test['min_score']):
+    elif score >= CALIBRATION_CRITERIA['short_test']['min_score']:
         return 'short_test'
-    
-    # Sinon REJECTED
-    return 'rejected'
+    else:
+        return 'rejected'
 
 
 def get_rejection_reason(

@@ -19,7 +19,7 @@ from pathlib import Path
 from datetime import datetime
 import pandas as pd
 import asyncio
-from telegram_search import search_telegram_channels, search_custom_market
+from telegram_search import search_telegram_channels, search_custom_market, get_joined_channels
 from telegram_calibrator import calibrate_channels_batch
 from telegram_authenticator import show_auth_page
 
@@ -343,6 +343,60 @@ elif st.session_state.current_step == 1:
 
     else:
         st.info("📭 Aucun canal calibré pour l'instant. Lancez une recherche pour en trouver !")
+
+    st.divider()
+
+    # ── Section "Mes Abonnements Telegram" ───────────────────
+    st.subheader("📡 Mes Abonnements Telegram")
+    st.caption("Canaux Telegram auxquels vous êtes déjà abonné — calibrez-les directement.")
+
+    col_load, col_info = st.columns([2, 3])
+    with col_load:
+        if st.button("📡 CHARGER MES ABONNEMENTS", use_container_width=True):
+            with st.spinner("Chargement de vos canaux Telegram..."):
+                try:
+                    joined = asyncio.run(get_joined_channels())
+                    st.session_state.joined_channels = joined
+                    st.success(f"✅ {len(joined)} canaux trouvés dans vos abonnements")
+                except Exception as e:
+                    st.error(f"❌ Erreur: {str(e)}")
+    with col_info:
+        st.info("💡 Ces canaux sont déjà dans votre Telegram — vous pouvez les calibrer sans les rejoindre.")
+
+    # Afficher les abonnements chargés
+    if st.session_state.get("joined_channels"):
+        joined = st.session_state.joined_channels
+        history = load_history()
+
+        st.write(f"**{len(joined)} canaux** — Cochez ceux à calibrer:")
+        selected_joined = []
+        for idx, ch in enumerate(joined):
+            already = ch["username"] in history
+            col1, col2, col3 = st.columns([1, 4, 2])
+            with col1:
+                sel = st.checkbox("✓", key=f"joined_{idx}", label_visibility="collapsed", disabled=already)
+                if sel and not already:
+                    selected_joined.append(ch)
+            with col2:
+                st.write(f"**{ch['title']}**")
+                st.caption(f"@{ch['username']}")
+                if already:
+                    saved = history[ch["username"]]
+                    status_icon = {"activated": "✅", "short_test": "⏳", "rejected": "❌"}.get(saved.get("status", ""), "❓")
+                    st.caption(f"📌 Déjà calibré {status_icon} — Score: {saved.get('score', '?')}/100")
+            with col3:
+                st.metric("Membres", f"{ch.get('members', 0):,}" if ch.get('members') else "?")
+
+        if selected_joined:
+            st.success(f"✅ {len(selected_joined)} canal(aux) sélectionné(s)")
+            if st.button("⚙️ CALIBRER MES ABONNEMENTS SÉLECTIONNÉS", type="primary", use_container_width=True):
+                # Assigner le marché "custom" par défaut
+                for ch in selected_joined:
+                    ch["market"] = "custom"
+                st.session_state.selected_channels = {"custom": selected_joined}
+                st.session_state.calibration_results = None
+                st.session_state.current_step = 4
+                st.rerun()
 
     st.divider()
 

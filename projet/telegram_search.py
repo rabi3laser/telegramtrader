@@ -7,7 +7,8 @@ import asyncio
 from telethon import TelegramClient
 from telethon.sessions import StringSession
 from telethon.tl.functions.contacts import SearchRequest
-from telethon.tl.types import Channel
+from telethon.tl.functions.messages import GetDialogsRequest
+from telethon.tl.types import Channel, InputPeerEmpty
 from datetime import datetime, timedelta
 import streamlit as st
 
@@ -170,6 +171,64 @@ async def search_telegram_channels(market: str, max_results: int = 20) -> list:
     print(f"   - Critères: MIN={MIN_MEMBERS}, MAX={MAX_MEMBERS}")
     
     return list(found_channels.values())
+
+
+async def get_joined_channels() -> list:
+    """
+    Liste tous les canaux Telegram auxquels l'utilisateur est déjà abonné.
+    Utilise GetDialogsRequest pour récupérer les dialogues.
+    
+    Returns:
+        Liste de canaux (format identique aux résultats de recherche)
+    """
+    if not st.session_state.get('tg_session'):
+        raise ValueError("⚠️ Veuillez d'abord vous connecter à Telegram")
+
+    try:
+        api_id = int(st.secrets["telegram"]["api_id"])
+        api_hash = st.secrets["telegram"]["api_hash"]
+    except (KeyError, AttributeError):
+        api_id = int(st.secrets.get("TELEGRAM_API_ID", 0))
+        api_hash = st.secrets.get("TELEGRAM_API_HASH", "")
+
+    session_string = st.session_state.tg_session
+    channels = []
+
+    async with TelegramClient(StringSession(session_string), api_id, api_hash) as client:
+        # Récupérer tous les dialogues (conversations, groupes, canaux)
+        result = await client(GetDialogsRequest(
+            offset_date=None,
+            offset_id=0,
+            offset_peer=InputPeerEmpty(),
+            limit=200,
+            hash=0
+        ))
+
+        for chat in result.chats:
+            # Filtrer uniquement les canaux (pas les groupes/megagroups)
+            if not isinstance(chat, Channel):
+                continue
+            if getattr(chat, 'megagroup', False):
+                continue  # Exclure les supergroups
+            if getattr(chat, 'left', False):
+                continue  # Exclure les canaux quittés
+
+            username = chat.username or f"id_{chat.id}"
+            members = getattr(chat, 'participants_count', 0) or 0
+
+            channels.append({
+                "username": username,
+                "title": chat.title,
+                "members": members,
+                "description": getattr(chat, 'about', None) or "",
+                "is_verified": getattr(chat, 'verified', False),
+                "recent_activity": "Inconnu",
+                "id": chat.id,
+                "is_joined": True,  # Marqueur : canal déjà rejoint
+            })
+
+    print(f"✅ {len(channels)} canaux trouvés dans vos abonnements")
+    return channels
 
 
 async def search_custom_market(keywords: list, max_results: int = 20) -> list:
