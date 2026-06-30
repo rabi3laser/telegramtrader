@@ -34,6 +34,43 @@ CALIBRATION_CRITERIA = {
 }
 
 
+def _resolve_channel_entity(channel_info: Dict):
+    """
+    Résout l'identifiant du canal pour Telethon.
+    
+    Gère 3 cas :
+    - username réel : "channelname" → utilisé tel quel
+    - ID numérique préfixé : "id_1804350972" → int(1804350972)
+    - ID numérique direct dans channel_id : int
+    
+    Returns:
+        str ou int utilisable par client.iter_messages()
+    """
+    username = channel_info.get('username', '')
+    channel_id = channel_info.get('channel_id') or channel_info.get('id')
+    
+    # Cas 1 : username de la forme "id_XXXXXXX" → ID numérique
+    if username and username.startswith('id_'):
+        try:
+            return int(username[3:])
+        except ValueError:
+            pass
+    
+    # Cas 2 : channel_id numérique disponible
+    if channel_id:
+        try:
+            cid = int(str(channel_id).replace('-100', '').replace('-', ''))
+            return cid
+        except ValueError:
+            pass
+    
+    # Cas 3 : username réel (sans @)
+    if username:
+        return username.lstrip('@')
+    
+    return None
+
+
 async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: Dict = None) -> Dict:
     """
     Calibration RÉELLE d'un canal Telegram
@@ -46,11 +83,13 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
     Returns:
         Résultat de la calibration avec statut et métriques
     """
-    username = channel_info.get('username')
-    if not username:
+    entity = _resolve_channel_entity(channel_info)
+    username = channel_info.get('username', str(entity) if entity else '')
+    
+    if not entity:
         return {
             'status': 'rejected',
-            'reason': 'Pas de username',
+            'reason': 'Identifiant de canal invalide (pas de username ni d\'ID)',
             'score': 0
         }
     
@@ -63,9 +102,10 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
     
     try:
         # 1. Récupérer les messages du canal
-        print(f"📥 Récupération des messages de @{username}...")
+        display_name = f"@{username}" if not str(entity).lstrip('-').isdigit() else f"ID:{entity}"
+        print(f"📥 Récupération des messages de {display_name}...")
         messages = []
-        async for message in client.iter_messages(username, limit=config['max_messages']):
+        async for message in client.iter_messages(entity, limit=config['max_messages']):
             if message.text:
                 messages.append({
                     'text': message.text,
