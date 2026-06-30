@@ -22,6 +22,7 @@ import asyncio
 from telegram_search import search_telegram_channels, search_custom_market, get_joined_channels
 from telegram_calibrator import calibrate_channels_batch
 from telegram_authenticator import show_auth_page
+from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIGURATION DE LA PAGE
@@ -426,6 +427,30 @@ elif st.session_state.current_step == 1:
                 st.session_state.calibration_results = None
                 st.session_state.current_step = 4
                 st.rerun()
+
+    st.divider()
+
+    # ── Section Repères de Prix NT8 ───────────────────────────
+    with st.expander("📸 Repères de Prix NinjaTrader (pour calcul Winrate réel)", expanded=False):
+        show_nt8_price_reference_section()
+
+        # Afficher le winrate réel si des références existent
+        price_refs = load_price_references()
+        if price_refs and history:
+            st.divider()
+            st.write("**📊 Winrate Réel calculé depuis vos références NT8**")
+            for username, ch in {**{u: c for u, c in history.items() if c["status"] == "activated"},
+                                  **{u: c for u, c in history.items() if c["status"] == "short_test"}}.items():
+                market = ch.get("market", "custom")
+                signals = ch.get("metrics", {}).get("signals_sample", [])
+                if not signals:
+                    signals = [{"entry_price": None, "tp_price": None, "sl_price": None}] * ch.get("signals_count", 0)
+                wr_result = calculate_real_winrate(signals, price_refs, market)
+                if wr_result.get("winrate") is not None:
+                    wr = wr_result["winrate"]
+                    color = "🟢" if wr >= 60 else ("🟡" if wr >= 50 else "🔴")
+                    st.write(f"{color} **{ch['title']}** : Winrate réel = **{wr}%** "
+                             f"({wr_result['trades_won']}/{wr_result['trades_won']+wr_result['trades_lost']} trades)")
 
     st.divider()
 
