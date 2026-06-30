@@ -518,9 +518,22 @@ elif st.session_state.current_step == 4:
         
         # Canaux rejetés
         if results["rejected"]:
-            with st.expander(f"❌ Canaux Rejetés ({len(results['rejected'])})"):
+            with st.expander(f"❌ Canaux Rejetés ({len(results['rejected'])})", expanded=True):
                 for channel in results["rejected"]:
-                    st.caption(f"{MARKETS[channel['market']]['icon']} {channel['title']} - Critères non atteints")
+                    col1, col2, col3 = st.columns([3, 2, 3])
+                    with col1:
+                        st.write(f"{MARKETS[channel['market']]['icon']} **{channel['title']}**")
+                        st.caption(f"@{channel['username']}")
+                    with col2:
+                        score = channel.get('score', 0)
+                        st.metric("Score", f"{score}/100")
+                    with col3:
+                        reason = channel.get('reason', 'Critères non atteints')
+                        metrics = channel.get('metrics', {})
+                        st.caption(f"❌ {reason}")
+                        if metrics:
+                            st.caption(f"📊 {metrics.get('total_signals', 0)} signaux | {metrics.get('total_messages', 0)} messages | qualité: {metrics.get('avg_quality', 0)}/10")
+                    st.divider()
         
         st.divider()
         
