@@ -266,18 +266,18 @@ elif st.session_state.current_step == 1:
                 ):
                     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
                     with col1:
-                        winrate = ch.get("winrate")
-                        if winrate is not None:
-                            color = "winrate-good" if winrate >= 70 else ("winrate-medium" if winrate >= 50 else "winrate-bad")
-                            st.markdown(f'<span class="{color}">Winrate: {winrate}%</span>', unsafe_allow_html=True)
-                        else:
-                            st.caption("Winrate: non calculé")
+                        score = ch.get("score", 0)
+                        color = "winrate-good" if score >= 70 else ("winrate-medium" if score >= 50 else "winrate-bad")
+                        st.markdown(f'<span class="{color}">Score: {score}/100</span>', unsafe_allow_html=True)
+                        st.caption("⚠️ Score texte — pas un vrai winrate")
                     with col2:
-                        st.metric("Signaux", ch.get("signals_count", "?"))
+                        st.metric("Signaux texte", ch.get("signals_count", "?"))
                     with col3:
                         date_str = ch.get("date_calibration", "")[:10] if ch.get("date_calibration") else "?"
+                        freshness, _ = winrate_freshness(ch.get("date_calibration", ""))
                         st.caption(f"@{username}")
                         st.caption(f"Calibré le: {date_str}")
+                        st.caption(freshness)
                     with col4:
                         if st.button("🗑️", key=f"del_{username}", help="Supprimer"):
                             remove_channel_from_history(username)
@@ -792,11 +792,12 @@ elif st.session_state.current_step == 5:
                     f"{market_info['icon']} {channel['title']}  —  Score: {channel.get('score', '?')}/100",
                     expanded=True
                 ):
+                    st.info("ℹ️ Score basé sur l'analyse textuelle des messages (BUY/SELL/TP/SL). Le vrai winrate nécessite OCR + suivi des prix (TP/SL atteints).")
                     col1, col2, col3, col4 = st.columns(4)
-                    col1.metric("Winrate", f"{channel.get('winrate', '?')}%")
-                    col2.metric("Signaux", channel.get("signals_count", "?"))
+                    col1.metric("Score qualité", f"{channel.get('score', '?')}/100")
+                    col2.metric("Signaux texte", channel.get("signals_count", "?"))
                     col3.metric("Membres", f"{channel.get('members', 0):,}")
-                    col4.metric("Score", f"{channel.get('score', '?')}/100")
+                    col4.metric("Signaux/jour", channel.get("metrics", {}).get("signals_per_day", "?"))
 
                     metrics = channel.get("metrics", {})
                     if metrics:
