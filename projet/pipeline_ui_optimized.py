@@ -23,6 +23,7 @@ from telegram_search import search_telegram_channels, search_custom_market, get_
 from telegram_calibrator import calibrate_channels_batch
 from telegram_authenticator import show_auth_page
 from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate
+from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════
 # CONFIGURATION DE LA PAGE
@@ -432,6 +433,62 @@ elif st.session_state.current_step == 1:
 
     # ── Section Repères de Prix NT8 ───────────────────────────
     with st.expander("📸 Repères de Prix NinjaTrader (pour calcul Winrate réel)", expanded=False):
+
+        # ── Téléchargement de l'indicateur NT8 ───────────────
+        st.subheader("🔧 Indicateur NinjaTrader 8 - CalibrationPanel")
+        st.caption("Installez cet indicateur sur NT8 pour afficher un panneau OHLC complet sur vos charts.")
+
+        indicator_file = Path(__file__).parent / "CalibrationPanel.cs"
+        guide_file = Path(__file__).parent / "GUIDE_CALIBRATION_PANEL.md"
+
+        col_dl1, col_dl2 = st.columns(2)
+        with col_dl1:
+            if indicator_file.exists():
+                with open(indicator_file, "r", encoding="utf-8") as f:
+                    cs_content = f.read()
+                st.download_button(
+                    "📥 Télécharger CalibrationPanel.cs",
+                    cs_content,
+                    "CalibrationPanel.cs",
+                    "text/plain",
+                    use_container_width=True,
+                    help="Copiez ce fichier dans Documents/NinjaTrader 8/bin/Custom/Indicators/"
+                )
+            else:
+                st.warning("⚠️ Fichier CalibrationPanel.cs non trouvé")
+
+        with col_dl2:
+            if guide_file.exists():
+                with open(guide_file, "r", encoding="utf-8") as f:
+                    guide_content = f.read()
+                st.download_button(
+                    "📖 Télécharger le Guide d'installation",
+                    guide_content,
+                    "GUIDE_CALIBRATION_PANEL.md",
+                    "text/markdown",
+                    use_container_width=True,
+                    help="Guide complet d'installation et d'utilisation"
+                )
+
+        with st.expander("📋 Instructions rapides d'installation", expanded=False):
+            st.markdown("""
+**1. Téléchargez** `CalibrationPanel.cs` ci-dessus
+
+**2. Copiez** le fichier dans :
+```
+C:\\Users\\[Votre Nom]\\Documents\\NinjaTrader 8\\bin\\Custom\\Indicators\\
+```
+
+**3. Compilez** dans NinjaTrader :
+- Menu : **Tools → Edit NinjaScript → Compile** (ou `F5`)
+
+**4. Ajoutez** sur un chart :
+- Clic droit sur le chart → **Indicators → CalibrationPanel → Add**
+
+**5. Capturez** et uploadez ci-dessous pour le winrate réel 📸
+""")
+
+        st.divider()
         show_nt8_price_reference_section()
 
         # Afficher le winrate réel si des références existent
