@@ -29,6 +29,18 @@ namespace NinjaTrader.NinjaScript.Indicators
 {
     public class CalibrationPanel : Indicator
     {
+        // Conversion position : 0=TopLeft, 1=TopRight, 2=BottomLeft, 3=BottomRight
+        private TextPosition GetTextPosition()
+        {
+            switch (PanelPosition)
+            {
+                case 1:  return TextPosition.TopRight;
+                case 2:  return TextPosition.BottomLeft;
+                case 3:  return TextPosition.BottomRight;
+                default: return TextPosition.TopLeft;
+            }
+        }
+
         protected override void OnStateChange()
         {
             if (State == State.SetDefaults)
@@ -43,7 +55,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                 IsSuspendedWhileInactive  = false;
 
                 // Paramètres par défaut
-                PanelPosition = TextPosition.TopLeft;
+                PanelPosition = 0;   // 0=TopLeft
                 FontSize      = 12;
                 ATRPeriod     = 14;
                 ShowATR       = true;
@@ -128,7 +140,7 @@ namespace NinjaTrader.NinjaScript.Indicators
                     this,
                     "CalibrationPanel_Text",
                     text,
-                    PanelPosition,
+                    GetTextPosition(),
                     Brushes.Cyan,
                     new SimpleFont("Courier New", FontSize),
                     Brushes.Transparent,
@@ -155,8 +167,9 @@ namespace NinjaTrader.NinjaScript.Indicators
         // ── Propriétés configurables ──────────────────────────
 
         [NinjaScriptProperty]
-        [Display(Name = "Position du panneau", Order = 1, GroupName = "Panneau")]
-        public TextPosition PanelPosition { get; set; }
+        [Range(0, 3)]
+        [Display(Name = "Position (0=TopLeft 1=TopRight 2=BotLeft 3=BotRight)", Order = 1, GroupName = "Panneau")]
+        public int PanelPosition { get; set; }
 
         [NinjaScriptProperty]
         [Range(8, 24)]
