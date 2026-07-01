@@ -107,26 +107,19 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
         
         # Essayer de résoudre l'entité — peut échouer si c'est un User hors contacts
         from telethon.tl.types import Channel, Chat, User
-        from telethon.errors import (
-            ValueError as TLValueError,
-            PeerIdInvalidError,
-            EntityNotFoundError,
-            PeerFloodError,
-            UserIdInvalidError
-        )
         
         try:
             resolved = await client.get_entity(entity)
-        except (TLValueError, PeerIdInvalidError, EntityNotFoundError, UserIdInvalidError) as e:
-            error_msg = str(e).lower()
-            if 'peeruser' in error_msg or 'user_id' in error_msg:
+        except Exception as entity_err:
+            error_msg = str(entity_err).lower()
+            if 'peeruser' in error_msg or 'user_id' in error_msg or 'private' in error_msg:
                 return {
                     'status': 'rejected',
                     'reason': f'Ceci est un utilisateur privé (ID: {entity}) — impossible de calibrer un compte privé',
                     'score': 0,
                     'metrics': {}
                 }
-            elif 'not found' in error_msg or 'invalid' in error_msg:
+            elif 'not found' in error_msg or 'invalid' in error_msg or 'cannot find' in error_msg:
                 return {
                     'status': 'rejected',
                     'reason': f'Entité introuvable ({display_name}) — canal supprimé ou ID invalide',
