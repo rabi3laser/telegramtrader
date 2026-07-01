@@ -20,7 +20,7 @@ from datetime import datetime
 import pandas as pd
 import asyncio
 from telegram_search import search_telegram_channels, search_custom_market, get_joined_channels
-from telegram_calibrator import calibrate_channels_batch
+from telegram_calibrator import calibrate_channels_batch, join_and_calibrate_single
 from telegram_authenticator import show_auth_page
 from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate
 from pathlib import Path
@@ -328,20 +328,35 @@ elif st.session_state.current_step == 1:
             with st.expander(f"❌ Canaux Rejetés ({len(rejected)})", expanded=False):
                 for username, ch in rejected.items():
                     market_info = MARKETS.get(ch.get("market", "custom"), MARKETS["custom"])
-                    col1, col2, col3, col4 = st.columns([3, 2, 2, 1])
+                    reason = ch.get("reason", "")
+                    needs_join = any(kw in reason for kw in ["🔒", "📨", "privé", "PRIVÉ", "rejoign", "adhésion", "Rejoign"])
+                    col1, col2, col3, col4, col5 = st.columns([3, 2, 3, 1, 1])
                     with col1:
                         st.write(f"{market_info['icon']} **{ch['title']}**")
                         st.caption(f"@{username}")
                     with col2:
                         st.metric("Score", f"{ch.get('score', '?')}/100")
                     with col3:
-                        reason = ch.get("reason", "")
                         metrics = ch.get("metrics", {})
                         if reason:
-                            st.caption(f"❌ {reason[:60]}")
+                            st.caption(f"❌ {reason[:80]}")
                         if metrics:
                             st.caption(f"📊 {metrics.get('total_signals', 0)} signaux | qualité: {metrics.get('avg_quality', 0)}/10")
                     with col4:
+                        if needs_join:
+                            if st.button("🔄", key=f"join_{username}", help="Rejoindre & Recalibrer"):
+                                with st.spinner(f"Tentative de rejoindre {ch['title']}..."):
+                                    try:
+                                        result = asyncio.run(join_and_calibrate_single(ch))
+                                        save_single_channel(result)
+                                        if result.get('status') != 'rejected':
+                                            st.success(f"✅ Rejoint et calibré ! Score: {result.get('score', 0)}/100")
+                                        else:
+                                            st.warning(f"⚠️ {result.get('reason', 'Toujours impossible')}")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Erreur: {e}")
+                    with col5:
                         if st.button("🗑️", key=f"del_{username}", help="Supprimer"):
                             remove_channel_from_history(username)
                             st.rerun()
@@ -912,14 +927,15 @@ elif st.session_state.current_step == 5:
             with st.expander(f"❌ Canaux Rejetés ({len(results['rejected'])})", expanded=True):
                 for channel in results["rejected"]:
                     market_info = MARKETS.get(channel.get("market", "custom"), MARKETS["custom"])
-                    col1, col2, col3 = st.columns([3, 2, 3])
+                    reason = channel.get("reason", "Critères non atteints")
+                    needs_join = any(kw in reason for kw in ["🔒", "📨", "privé", "PRIVÉ", "rejoign", "adhésion", "Rejoign"])
+                    col1, col2, col3, col4 = st.columns([3, 2, 3, 1])
                     with col1:
                         st.write(f"{market_info['icon']} **{channel['title']}**")
                         st.caption(f"@{channel['username']}")
                     with col2:
                         st.metric("Score", f"{channel.get('score', 0)}/100")
                     with col3:
-                        reason = channel.get("reason", "Critères non atteints")
                         metrics = channel.get("metrics", {})
                         st.caption(f"❌ {reason}")
                         if metrics:
@@ -928,6 +944,20 @@ elif st.session_state.current_step == 5:
                                 f"{metrics.get('total_messages', 0)} messages | "
                                 f"qualité: {metrics.get('avg_quality', 0)}/10"
                             )
+                    with col4:
+                        if needs_join:
+                            if st.button("🔄 Rejoindre", key=f"join_r5_{channel['username']}"):
+                                with st.spinner(f"Tentative de rejoindre {channel['title']}..."):
+                                    try:
+                                        result = asyncio.run(join_and_calibrate_single(channel))
+                                        save_single_channel(result)
+                                        if result.get('status') != 'rejected':
+                                            st.success(f"✅ Rejoint et calibré ! Score: {result.get('score', 0)}/100")
+                                        else:
+                                            st.warning(f"⚠️ {result.get('reason', 'Toujours impossible')}")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Erreur: {e}")
                     st.divider()
 
         st.divider()

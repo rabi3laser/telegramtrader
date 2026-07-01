@@ -422,7 +422,7 @@ async def join_channel(client: TelegramClient, username: str) -> Tuple[bool, str
     
     Args:
         client: Client Telegram connecté
-        username: Username du canal (sans @)
+        username: Username du canal (sans @) ou ID numérique
         
     Returns:
         (success, message)
@@ -446,6 +446,77 @@ async def join_channel(client: TelegramClient, username: str) -> Tuple[bool, str
             return True, f"✅ Déjà membre de @{clean_username}"
         else:
             return False, f"❌ Erreur: {str(e)}"
+
+
+async def join_and_calibrate_single(channel_info: Dict, config: Dict = None) -> Dict:
+    """
+    Tente de rejoindre un canal privé/groupe puis le calibre immédiatement.
+    Utilisé par l'interface pour le bouton "Rejoindre & Calibrer".
+    
+    Args:
+        channel_info: Informations du canal (username, title, etc.)
+        config: Configuration optionnelle de calibration
+        
+    Returns:
+        Résultat de la calibration (ou statut de la demande d'adhésion)
+    """
+    if not st.session_state.get('tg_session'):
+        raise ValueError("⚠️ Veuillez d'abord vous connecter à Telegram")
+    
+    try:
+        api_id = int(st.secrets["telegram"]["api_id"])
+        api_hash = st.secrets["telegram"]["api_hash"]
+    except (KeyError, AttributeError):
+        api_id = int(st.secrets.get("TELEGRAM_API_ID", 0))
+        api_hash = st.secrets.get("TELEGRAM_API_HASH", "")
+    
+    session_string = st.session_state.tg_session
+    entity = _resolve_channel_entity(channel_info)
+    
+    if not entity:
+        return {'status': 'rejected', 'reason': 'Identifiant invalide', 'score': 0}
+    
+    async with TelegramClient(StringSession(session_string), api_id, api_hash) as client:
+        # Tenter de rejoindre explicitement
+        try:
+            await client(JoinChannelRequest(entity))
+            await asyncio.sleep(2)
+        except InviteRequestSentError:
+            return {
+                'status': 'rejected',
+                'reason': '📨 Demande d\'adhésion envoyée — En attente d\'approbation par l\'admin',
+                'score': 0,
+                'metrics': {},
+                'action_needed': 'wait_approval'
+            }
+        except ChannelPrivateError:
+            return {
+                'status': 'rejected',
+                'reason': '🔒 Ce canal nécessite un lien d\'invitation privé — impossible de rejoindre automatiquement',
+                'score': 0,
+                'metrics': {},
+                'action_needed': 'join_private'
+            }
+        except Exception as e:
+            err_msg = str(e).lower()
+            if 'already' not in err_msg and 'participant' not in err_msg:
+                # Erreur réelle (pas "déjà membre")
+                err_msg_low = err_msg
+                if any(kw in err_msg_low for kw in ['peeruser', 'user_id', 'bot']):
+                    return {
+                        'status': 'rejected',
+                        'reason': f'👤 Ce n\'est pas un canal (utilisateur/bot) — impossible à calibrer',
+                        'score': 0,
+                        'metrics': {}
+                    }
+        
+        # Adhésion réussie (ou déjà membre) → calibrer immédiatement
+        result = await calibrate_channel(client, channel_info, config)
+        metrics = result.get('metrics', {})
+        result['winrate'] = int(result.get('score', 0))
+        result['signals_count'] = metrics.get('total_signals', 0)
+        result['date_calibration'] = datetime.now().isoformat()
+        return {**channel_info, **result}
 
 
 async def calibrate_channels_batch(
