@@ -126,11 +126,16 @@ def save_single_channel(ch: dict, history: dict = None, now: str = None):
     username = ch.get("username", "")
     if not username:
         return history
+    # Si une demande d'adhésion est en attente, statut spécial "pending_approval"
+    computed_status = ch.get("status", "rejected")
+    if ch.get("action_needed") == "wait_approval":
+        computed_status = "pending_approval"
+
     history[username] = {
         "username": username,
         "title": ch.get("title", username),
         "market": ch.get("market", "custom"),
-        "status": ch.get("status", "rejected"),
+        "status": computed_status,
         "score": ch.get("score", 0),
         "winrate": ch.get("winrate", ch.get("score", 0)),
         "signals_count": ch.get("signals_count", 0),
@@ -138,7 +143,9 @@ def save_single_channel(ch: dict, history: dict = None, now: str = None):
         "members": ch.get("members", 0),
         "description": ch.get("description", ""),
         "reason": ch.get("reason", ""),
+        "action_needed": ch.get("action_needed", ""),
         "date_calibration": ch.get("date_calibration", now),
+        "channel_id": ch.get("channel_id", ch.get("id", "")),
     }
     save_history(history)
     return history
@@ -255,6 +262,7 @@ elif st.session_state.current_step == 1:
         # Grouper par statut
         activated   = {u: c for u, c in history.items() if c["status"] == "activated"}
         short_test  = {u: c for u, c in history.items() if c["status"] == "short_test"}
+        pending     = {u: c for u, c in history.items() if c["status"] == "pending_approval"}
         rejected    = {u: c for u, c in history.items() if c["status"] == "rejected"}
 
         # ── Canaux Activés ──
@@ -323,6 +331,45 @@ elif st.session_state.current_step == 1:
                         remove_channel_from_history(username)
                         st.rerun()
 
+        # ── Canaux en attente d'approbation ──
+        if pending:
+            st.markdown("### 📨 En Attente d'Approbation")
+            st.caption("Demande d'adhésion envoyée à l'admin du canal — cliquez sur 'Vérifier' périodiquement.")
+            for username, ch in pending.items():
+                market_info = MARKETS.get(ch.get("market", "custom"), MARKETS["custom"])
+                col1, col2, col3, col4 = st.columns([3, 3, 1, 1])
+                with col1:
+                    st.write(f"{market_info['icon']} **{ch['title']}**")
+                    st.caption(f"@{username}")
+                with col2:
+                    date_str = ch.get("date_calibration", "")
+                    try:
+                        dt = datetime.fromisoformat(date_str)
+                        elapsed = (datetime.now() - dt).total_seconds() / 3600
+                        st.caption(f"📨 Demande envoyée il y a {int(elapsed)}h")
+                    except Exception:
+                        st.caption("📨 Demande d'adhésion en attente")
+                with col3:
+                    if st.button("🔍 Vérifier", key=f"check_{username}", help="Vérifier si l'admin a accepté"):
+                        with st.spinner(f"Vérification de {ch['title']}..."):
+                            try:
+                                result = asyncio.run(join_and_calibrate_single(ch))
+                                save_single_channel(result)
+                                if result.get('status') not in ('rejected',):
+                                    st.success(f"🎉 Accepté ! Calibré — Score: {result.get('score', 0)}/100")
+                                elif result.get('action_needed') == 'wait_approval':
+                                    st.info("⏳ Toujours en attente d'approbation de l'admin")
+                                else:
+                                    st.warning(f"⚠️ {result.get('reason', 'Statut inchangé')}")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"❌ Erreur: {e}")
+                with col4:
+                    if st.button("🗑️", key=f"del_{username}", help="Abandonner"):
+                        remove_channel_from_history(username)
+                        st.rerun()
+            st.divider()
+
         # ── Canaux Rejetés ──
         if rejected:
             with st.expander(f"❌ Canaux Rejetés ({len(rejected)})", expanded=False):
@@ -351,6 +398,8 @@ elif st.session_state.current_step == 1:
                                         save_single_channel(result)
                                         if result.get('status') != 'rejected':
                                             st.success(f"✅ Rejoint et calibré ! Score: {result.get('score', 0)}/100")
+                                        elif result.get('action_needed') == 'wait_approval':
+                                            st.info("📨 Demande envoyée — voir section 'En Attente d'Approbation'")
                                         else:
                                             st.warning(f"⚠️ {result.get('reason', 'Toujours impossible')}")
                                         st.rerun()
