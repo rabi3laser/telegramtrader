@@ -109,7 +109,18 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
         from telethon.tl.types import Channel, Chat, User
         
         try:
-            resolved = await client.get_entity(entity)
+            # Si l'entité est un ID numérique pur, l'envelopper explicitement
+            # dans PeerChannel pour lever l'ambiguïté Telegram (user_id vs channel_id
+            # partagent le même espace de numérotation et Telethon peut résoudre
+            # vers le mauvais type d'entité en cache).
+            resolve_target = entity
+            if isinstance(entity, int) or (isinstance(entity, str) and entity.lstrip('-').isdigit()):
+                from telethon.tl.types import PeerChannel
+                try:
+                    resolve_target = PeerChannel(int(entity))
+                except Exception:
+                    resolve_target = entity
+            resolved = await client.get_entity(resolve_target)
         except Exception as entity_err:
             error_msg = str(entity_err).lower()
             

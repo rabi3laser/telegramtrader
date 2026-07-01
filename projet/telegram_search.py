@@ -122,13 +122,18 @@ async def search_telegram_channels(market: str, max_results: int = 20) -> list:
                     if members > 0 and (members < MIN_MEMBERS or members > MAX_MEMBERS):
                         continue
                     
+                    has_public_username = bool(chat.username)
                     username = chat.username or f"id_{chat.id}"
                     if username in found_channels:
                         continue
                     
-                    # Estimer activité
+                    # Estimer activité + récupérer description complète
                     activity = "Inconnu"
+                    description = getattr(chat, 'about', None) or ""
                     try:
+                        from telethon.tl.functions.channels import GetFullChannelRequest
+                        full = await client(GetFullChannelRequest(chat))
+                        description = full.full_chat.about or description
                         messages = await client.get_messages(chat, limit=10)
                         if messages:
                             now = datetime.now(messages[0].date.tzinfo)
@@ -148,10 +153,12 @@ async def search_telegram_channels(market: str, max_results: int = 20) -> list:
                         "username": username,
                         "title": chat.title,
                         "members": members if members > 0 else 1000,  # Valeur par défaut si inconnu
-                        "description": getattr(chat, 'about', None) or "Pas de description",
+                        "description": description or "Pas de description",
                         "is_verified": getattr(chat, 'verified', False),
                         "recent_activity": activity,
-                        "id": chat.id
+                        "id": chat.id,
+                        "is_public": has_public_username,  # True = username public (rejoignable directement)
+                        "channel_type": "🌐 Public" if has_public_username else "🔒 Privé/Restreint",
                     }
                     channels_found_this_keyword += 1
                     
@@ -276,13 +283,18 @@ async def search_custom_market(keywords: list, max_results: int = 20) -> list:
                     if members > 0 and (members < MIN_MEMBERS or members > MAX_MEMBERS):
                         continue
                     
+                    has_public_username = bool(chat.username)
                     username = chat.username or f"id_{chat.id}"
                     if username in found_channels:
                         continue
                     
-                    # Estimer activité
+                    # Estimer activité + récupérer description complète
                     activity = "Inconnu"
+                    description = getattr(chat, 'about', None) or ""
                     try:
+                        from telethon.tl.functions.channels import GetFullChannelRequest
+                        full = await client(GetFullChannelRequest(chat))
+                        description = full.full_chat.about or description
                         messages = await client.get_messages(chat, limit=10)
                         if messages:
                             now = datetime.now(messages[0].date.tzinfo)
@@ -302,10 +314,12 @@ async def search_custom_market(keywords: list, max_results: int = 20) -> list:
                         "username": username,
                         "title": chat.title,
                         "members": members if members > 0 else 1000,
-                        "description": getattr(chat, 'about', None) or "Pas de description",
+                        "description": description or "Pas de description",
                         "is_verified": getattr(chat, 'verified', False),
                         "recent_activity": activity,
-                        "id": chat.id
+                        "id": chat.id,
+                        "is_public": has_public_username,
+                        "channel_type": "🌐 Public" if has_public_username else "🔒 Privé/Restreint",
                     }
                     
                     if len(found_channels) >= max_results:

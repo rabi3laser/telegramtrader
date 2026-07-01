@@ -665,45 +665,96 @@ elif st.session_state.current_step == 2:
         results = st.session_state.search_results[selected_market]
         history = load_history()
 
-        st.write(f"**{len(results)} canaux trouvés** - Cochez ceux que vous voulez calibrer:")
+        # Séparer les canaux publics (rejoignables directement) des privés
+        public_channels  = [c for c in results if c.get("is_public", True)]
+        private_channels = [c for c in results if not c.get("is_public", True)]
 
-        for idx, channel in enumerate(results):
-            already_calibrated = channel["username"] in history
-            col1, col2, col3, col4, col5 = st.columns([1, 3, 2, 2, 2])
+        # ── Canaux Publics ──────────────────────────────────────
+        st.write(f"### 🌐 Canaux Publics ({len(public_channels)}) — sélectionnables directement")
+        if public_channels:
+            for idx, channel in enumerate(public_channels):
+                already_calibrated = channel["username"] in history
+                col1, col2, col3, col4 = st.columns([1, 4, 2, 2])
 
-            with col1:
-                selected = st.checkbox(
-                    "✓",
-                    key=f"select_{selected_market}_{idx}",
-                    label_visibility="collapsed",
-                    disabled=already_calibrated
-                )
-                if selected and not already_calibrated:
-                    if selected_market not in st.session_state.selected_channels:
-                        st.session_state.selected_channels[selected_market] = []
-                    if channel not in st.session_state.selected_channels[selected_market]:
-                        st.session_state.selected_channels[selected_market].append(channel)
+                with col1:
+                    selected = st.checkbox(
+                        "✓",
+                        key=f"select_pub_{selected_market}_{idx}",
+                        label_visibility="collapsed",
+                        disabled=already_calibrated
+                    )
+                    if selected and not already_calibrated:
+                        if selected_market not in st.session_state.selected_channels:
+                            st.session_state.selected_channels[selected_market] = []
+                        if channel not in st.session_state.selected_channels[selected_market]:
+                            st.session_state.selected_channels[selected_market].append(channel)
 
-            with col2:
-                verified_badge = "✅" if channel.get("is_verified") else ""
-                st.write(f"**{channel['title']}** {verified_badge}")
-                st.caption(f"@{channel['username']}")
-                if already_calibrated:
-                    saved = history[channel["username"]]
-                    st.caption(f"📌 Déjà calibré — Score: {saved.get('score', '?')}/100")
+                with col2:
+                    verified_badge = "✅" if channel.get("is_verified") else ""
+                    st.write(f"**{channel['title']}** {verified_badge} `{channel.get('channel_type', '🌐 Public')}`")
+                    st.caption(f"@{channel['username']}")
+                    desc = channel.get('description', '') or 'Pas de description'
+                    st.caption(f"📝 {desc}")
+                    if already_calibrated:
+                        saved = history[channel["username"]]
+                        st.caption(f"📌 Déjà calibré — Score: {saved.get('score', '?')}/100")
 
-            with col3:
-                st.metric("Membres", f"{channel['members']:,}")
+                with col3:
+                    st.metric("Membres", f"{channel['members']:,}")
 
-            with col4:
-                activity_color = {
-                    "Très actif": "🟢", "Actif": "🟡", "Modéré": "🟠"
-                }.get(channel.get('recent_activity', 'Inconnu'), "⚪")
-                st.write(f"{activity_color} {channel.get('recent_activity', 'Inconnu')}")
+                with col4:
+                    activity_color = {
+                        "Très actif": "🟢", "Actif": "🟡", "Modéré": "🟠", "Faible": "🔴"
+                    }.get(channel.get('recent_activity', 'Inconnu'), "⚪")
+                    st.write(f"{activity_color} {channel.get('recent_activity', 'Inconnu')}")
+                st.divider()
+        else:
+            st.caption("Aucun canal public trouvé pour cette recherche.")
 
-            with col5:
-                desc = channel.get('description', '') or ''
-                st.caption(desc[:50] + ("..." if len(desc) > 50 else ""))
+        # ── Canaux Privés / Restreints ───────────────────────────
+        if private_channels:
+            with st.expander(f"🔒 Canaux Privés/Restreints ({len(private_channels)}) — nécessitent une demande d'adhésion", expanded=False):
+                st.caption("Ces canaux n'ont pas d'username public. Envoyez une demande d'adhésion, "
+                           "elle sera suivie dans 'Mes Canaux → En Attente d'Approbation'.")
+                for idx, channel in enumerate(private_channels):
+                    already_calibrated = channel["username"] in history
+                    already_pending = history.get(channel["username"], {}).get("status") == "pending_approval"
+                    col1, col2, col3, col4 = st.columns([4, 2, 2, 2])
+                    with col1:
+                        verified_badge = "✅" if channel.get("is_verified") else ""
+                        st.write(f"**{channel['title']}** {verified_badge} `🔒 Privé/Restreint`")
+                        st.caption(f"ID: {channel['username']}")
+                        desc = channel.get('description', '') or 'Pas de description'
+                        st.caption(f"📝 {desc}")
+                    with col2:
+                        st.metric("Membres", f"{channel['members']:,}")
+                    with col3:
+                        activity_color = {
+                            "Très actif": "🟢", "Actif": "🟡", "Modéré": "🟠", "Faible": "🔴"
+                        }.get(channel.get('recent_activity', 'Inconnu'), "⚪")
+                        st.write(f"{activity_color} {channel.get('recent_activity', 'Inconnu')}")
+                    with col4:
+                        if already_calibrated:
+                            st.caption("📌 Déjà traité")
+                        elif already_pending:
+                            st.caption("📨 Demande déjà envoyée")
+                        else:
+                            if st.button("📨 Demander", key=f"reqjoin_{selected_market}_{idx}"):
+                                channel["market"] = selected_market
+                                with st.spinner(f"Envoi de la demande pour {channel['title']}..."):
+                                    try:
+                                        result = asyncio.run(join_and_calibrate_single(channel))
+                                        save_single_channel(result)
+                                        if result.get('status') != 'rejected':
+                                            st.success(f"✅ Rejoint et calibré ! Score: {result.get('score', 0)}/100")
+                                        elif result.get('action_needed') == 'wait_approval':
+                                            st.info("📨 Demande envoyée — suivi dans 'Mes Canaux'")
+                                        else:
+                                            st.warning(f"⚠️ {result.get('reason', 'Impossible')}")
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Erreur: {e}")
+                    st.divider()
 
         # Bouton passer à la sélection
         st.divider()
@@ -715,7 +766,7 @@ elif st.session_state.current_step == 2:
                 st.session_state.current_step = 3
                 st.rerun()
         else:
-            st.warning("⚠️ Sélectionnez au moins un canal non encore calibré pour continuer")
+            st.warning("⚠️ Sélectionnez au moins un canal public non encore calibré pour continuer")
 
 # ═══════════════════════════════════════════════════════════════
 # ÉTAPE 3 : SÉLECTION MANUELLE
