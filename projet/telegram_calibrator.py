@@ -112,21 +112,51 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
             resolved = await client.get_entity(entity)
         except Exception as entity_err:
             error_msg = str(entity_err).lower()
-            if 'peeruser' in error_msg or 'user_id' in error_msg or 'private' in error_msg:
-                return {
-                    'status': 'rejected',
-                    'reason': f'Ceci est un utilisateur privé (ID: {entity}) — impossible de calibrer un compte privé',
-                    'score': 0,
-                    'metrics': {}
-                }
-            elif 'not found' in error_msg or 'invalid' in error_msg or 'cannot find' in error_msg:
-                return {
-                    'status': 'rejected',
-                    'reason': f'Entité introuvable ({display_name}) — canal supprimé ou ID invalide',
-                    'score': 0,
-                    'metrics': {}
-                }
-            raise  # Relancer les autres erreurs
+            
+            # Cas 1 : Entité introuvable → essayer de rejoindre (groupe privé)
+            if any(kw in error_msg for kw in ['not found', 'invalid', 'cannot find', 'peeruser', 'user_id', 'private']):
+                print(f"   ⚠️ Entité non résolue, tentative de rejoindre {display_name}...")
+                
+                try:
+                    # Essayer de rejoindre avec l'entité (username ou ID)
+                    await client(JoinChannelRequest(entity))
+                    print(f"   ✅ Rejoint avec succès ! Nouvelle tentative de résolution...")
+                    # Attendre un peu que Telegram propage la mise à jour
+                    import asyncio
+                    await asyncio.sleep(2)
+                    # Réessayer get_entity après avoir rejoint
+                    resolved = await client.get_entity(entity)
+                    print(f"   ✅ Entité résolue après adhésion: {type(resolved).__name__}")
+                    
+                except ChannelPrivateError:
+                    return {
+                        'status': 'rejected',
+                        'reason': f'🔒 Canal/Groupe PRIVÉ ({display_name}) — Rejoignez-le manuellement dans Telegram puis réessayez',
+                        'score': 0,
+                        'metrics': {},
+                        'action_needed': 'join_private'
+                    }
+                except InviteRequestSentError:
+                    return {
+                        'status': 'rejected',
+                        'reason': f'📨 Demande d\'adhésion envoyée pour {display_name} — Attendez l\'approbation puis réessayez',
+                        'score': 0,
+                        'metrics': {},
+                        'action_needed': 'wait_approval'
+                    }
+                except Exception as join_err:
+                    join_err_msg = str(join_err).lower()
+                    if any(kw in join_err_msg for kw in ['peeruser', 'user_id', 'bot', 'private']):
+                        return {
+                            'status': 'rejected',
+                            'reason': f'👤 Compte privé/utilisateur ({display_name}) — Ce n\'est pas un canal, impossible à calibrer',
+                            'score': 0,
+                            'metrics': {}
+                        }
+                    raise  # Relancer les autres erreurs de join
+            
+            else:
+                raise  # Erreur non liée à une entité introuvable
         
         # Vérifier le type : doit être Channel ou Group, PAS User
         if isinstance(resolved, User):
