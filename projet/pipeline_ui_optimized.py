@@ -144,6 +144,7 @@ def save_single_channel(ch: dict, history: dict = None, now: str = None):
         "description": ch.get("description", ""),
         "reason": ch.get("reason", ""),
         "action_needed": ch.get("action_needed", ""),
+        "real_winrate": ch.get("real_winrate", {}),
         "date_calibration": ch.get("date_calibration", now),
         "channel_id": ch.get("channel_id", ch.get("id", "")),
     }
@@ -274,6 +275,18 @@ elif st.session_state.current_step == 1:
                     f"{market_info['icon']} {ch['title']}  —  Score: {ch.get('score', '?')}/100",
                     expanded=True
                 ):
+                    real_wr = ch.get("real_winrate", {})
+                    if real_wr.get("available") and real_wr.get("winrate") is not None:
+                        wr = real_wr["winrate"]
+                        wr_color = "🟢" if wr >= 60 else ("🟡" if wr >= 50 else "🔴")
+                        st.success(
+                            f"{wr_color} **WINRATE RÉEL: {wr}%** "
+                            f"({real_wr['wins']}W/{real_wr['losses']}L, vs {real_wr['symbol_used']})"
+                        )
+                    elif real_wr.get("available"):
+                        st.caption("ℹ️ Winrate réel indéterminé (aucun TP/SL touché dans la fenêtre)")
+                    else:
+                        st.caption(f"⚠️ Winrate réel non calculé : {real_wr.get('reason', 'clé API manquante')}")
                     col1, col2, col3, col4 = st.columns([2, 2, 2, 1])
                     with col1:
                         score = ch.get("score", 0)
@@ -989,7 +1002,21 @@ elif st.session_state.current_step == 5:
                     f"{market_info['icon']} {channel['title']}  —  Score: {channel.get('score', '?')}/100",
                     expanded=True
                 ):
-                    st.info("ℹ️ Score basé sur l'analyse textuelle des messages (BUY/SELL/TP/SL). Le vrai winrate nécessite OCR + suivi des prix (TP/SL atteints).")
+                    real_wr = channel.get("real_winrate", {})
+                    if real_wr.get("available"):
+                        wr = real_wr.get("winrate")
+                        if wr is not None:
+                            wr_color = "🟢" if wr >= 60 else ("🟡" if wr >= 50 else "🔴")
+                            st.success(
+                                f"{wr_color} **WINRATE RÉEL: {wr}%** "
+                                f"({real_wr['wins']}W / {real_wr['losses']}L sur {real_wr['total_evaluated']} signaux, "
+                                f"vs prix réels {real_wr['symbol_used']}) — {real_wr.get('unknown',0)} indéterminés"
+                            )
+                        else:
+                            st.info(f"ℹ️ Winrate réel indéterminé — aucun signal n'a touché TP ou SL dans la fenêtre analysée ({real_wr.get('symbol_used','?')})")
+                    else:
+                        st.warning(f"⚠️ Winrate réel non disponible : {real_wr.get('reason', 'clé API Twelve Data non configurée')}")
+                    st.caption("ℹ️ Score qualité = complétude du formatage des signaux (BUY/SELL/TP/SL). Le winrate réel ci-dessus compare aux prix de marché réels.")
                     col1, col2, col3, col4 = st.columns(4)
                     col1.metric("Score qualité", f"{channel.get('score', '?')}/100")
                     col2.metric("Signaux texte", channel.get("signals_count", "?"))

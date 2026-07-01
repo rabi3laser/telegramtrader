@@ -12,6 +12,7 @@ from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 import streamlit as st
 from signal_detector import analyze_messages
+from real_winrate import calculate_channel_real_winrate
 
 
 # Critères de décision pour la calibration
@@ -246,7 +247,22 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
             score=score
         )
         
-        # 6. Préparer le résultat
+        # 6. Calculer le VRAI winrate (comparaison aux prix réels du marché)
+        # Ceci est indépendant du "score" textuel ci-dessus : le score mesure
+        # la qualité de formatage des signaux, le winrate réel mesure si les
+        # trades auraient été gagnants sur le marché réel (via Twelve Data).
+        real_wr = {"available": False, "reason": "Marché non déterminé"}
+        if analysis['markets_covered']:
+            # Mapper le marché détecté texte -> identifiant interne pipeline
+            text_to_internal = {
+                'gold': 'gold_mgc', 'nasdaq': 'mnq_nasdaq',
+                'crude': 'mcl_crude', 'sp500': 'mes_sp500',
+            }
+            internal_market = text_to_internal.get(analysis['markets_covered'][0])
+            if internal_market:
+                real_wr = calculate_channel_real_winrate(analysis['signals'], internal_market)
+
+        # 7. Préparer le résultat
         result = {
             'status': status,
             'score': round(score, 1),
@@ -261,6 +277,7 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
                 'sell_signals': analysis['sell_signals'],
                 'signal_rate': analysis['signal_rate']
             },
+            'real_winrate': real_wr,
             'signals_sample': analysis['signals'][:5] if analysis['signals'] else []  # 5 premiers signaux
         }
         
