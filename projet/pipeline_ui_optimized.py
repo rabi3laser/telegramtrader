@@ -22,7 +22,7 @@ import asyncio
 from telegram_search import search_telegram_channels, search_custom_market, get_joined_channels
 from telegram_calibrator import calibrate_channels_batch, join_and_calibrate_single
 from telegram_authenticator import show_auth_page
-from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate, calculate_slippage, calculate_slippage
+from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate, calculate_slippage
 from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════
@@ -117,6 +117,18 @@ def add_channels_to_history(calibration_results: dict):
     return history
 
 
+def _serialize_signals_sample(signals: list) -> list:
+    """Convertit les objets datetime des signaux en string ISO pour la sérialisation JSON."""
+    safe = []
+    for s in (signals or []):
+        safe_s = dict(s)
+        d = safe_s.get("date")
+        if hasattr(d, "isoformat"):
+            safe_s["date"] = d.isoformat()
+        safe.append(safe_s)
+    return safe
+
+
 def save_single_channel(ch: dict, history: dict = None, now: str = None):
     """Sauvegarde un seul canal dans l'historique (sauvegarde progressive)."""
     if history is None:
@@ -131,6 +143,9 @@ def save_single_channel(ch: dict, history: dict = None, now: str = None):
     if ch.get("action_needed") == "wait_approval":
         computed_status = "pending_approval"
 
+    # Sérialiser les signaux (convertir datetime → string ISO)
+    signals_sample = _serialize_signals_sample(ch.get("signals_sample", []))
+
     history[username] = {
         "username": username,
         "title": ch.get("title", username),
@@ -144,7 +159,7 @@ def save_single_channel(ch: dict, history: dict = None, now: str = None):
         "description": ch.get("description", ""),
         "reason": ch.get("reason", ""),
         "action_needed": ch.get("action_needed", ""),
-        "signals_sample": ch.get("signals_sample", []),
+        "signals_sample": signals_sample,
         "date_calibration": ch.get("date_calibration", now),
         "channel_id": ch.get("channel_id", ch.get("id", "")),
     }
