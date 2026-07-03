@@ -22,7 +22,7 @@ import asyncio
 from telegram_search import search_telegram_channels, search_custom_market, get_joined_channels
 from telegram_calibrator import calibrate_channels_batch, join_and_calibrate_single
 from telegram_authenticator import show_auth_page
-from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate
+from price_reference import show_nt8_price_reference_section, load_price_references, calculate_real_winrate, calculate_slippage, calculate_slippage
 from pathlib import Path
 
 # ═══════════════════════════════════════════════════════════════
@@ -601,6 +601,22 @@ C:\\Users\\[Votre Nom]\\Documents\\NinjaTrader 8\\bin\\Custom\\Indicators\\
                              f"({wr_result['trades_won']}/{wr_result['trades_won']+wr_result['trades_lost']} trades)")
                 else:
                     st.caption(f"⚪ {ch['title']} : {wr_result.get('reason', 'winrate indéterminé')}")
+
+                # ── Calcul du slippage ──
+                slip_result = calculate_slippage(signals, price_refs, market, max_time_diff_hours=168.0)
+                if slip_result.get("slippage_moyen") is not None:
+                    slip = slip_result["slippage_moyen"]
+                    slip_color = "🟢" if slip < 5 else ("🟡" if slip < 15 else "🔴")
+                    st.write(f"  {slip_color} Slippage moyen = **{slip} pts** "
+                             f"(med: {slip_result['slippage_median']}, "
+                             f"min: {slip_result['slippage_min']}, max: {slip_result['slippage_max']}, "
+                             f"sur {slip_result['nb_comparaisons']} signaux)")
+                    with st.expander(f"  Details slippage ({len(slip_result.get('details', []))} signaux)"):
+                        for d in slip_result.get("details", []):
+                            st.write(f"  - {d['direction'].upper()} @ {d['signal_entry']} vs NT8 {d['nt8_price']} "
+                                     f"-> {d['slippage']} pts (Dt={d['time_diff_hours']}h)")
+                else:
+                    st.caption(f"  Slippage : {slip_result.get('reason', 'indetermine')}")
 
     st.divider()
 

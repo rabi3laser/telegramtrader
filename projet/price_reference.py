@@ -445,6 +445,58 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
 
 
 # ═══════════════════════════════════════════════════════════════
+
+
+def calculate_slippage(signals: list, price_refs: list, market: str, max_time_diff_hours: float = 168.0) -> dict:
+    if not signals or not price_refs:
+        return {'slippage_moyen': None, 'reason': 'Pas assez de donnees'}
+    market_refs = [r for r in price_refs if r.get('market') == market]
+    if not market_refs:
+        return {'slippage_moyen': None, 'reason': f'Aucune reference NT8 pour {market}'}
+    dated_refs = []
+    for r in market_refs:
+        dt = _ref_datetime(r)
+        if dt is not None:
+            dated_refs.append((dt, r))
+    if not dated_refs:
+        return {'slippage_moyen': None, 'reason': 'References NT8 sans date/heure exploitable'}
+    slippages = []
+    details = []
+    for signal in signals:
+        entry = signal.get('entry_price')
+        sig_date = signal.get('date')
+        if not entry or not sig_date:
+            continue
+        sig_dt = sig_date.replace(tzinfo=None) if getattr(sig_date, 'tzinfo', None) else sig_date
+        closest_ref = None
+        best_diff = None
+        for ref_dt, ref in dated_refs:
+            diff_hours = abs((sig_dt - ref_dt).total_seconds()) / 3600
+            if diff_hours <= max_time_diff_hours and (best_diff is None or diff_hours < best_diff):
+                best_diff = diff_hours
+                closest_ref = ref
+        if not closest_ref:
+            continue
+        ref_price = closest_ref.get('last') or closest_ref.get('close') or closest_ref.get('price')
+        if not ref_price:
+            continue
+        try:
+            entry_float = float(str(entry).replace(',', ''))
+            ref_float = float(str(ref_price).replace(',', ''))
+            slip = abs(entry_float - ref_float)
+            slippages.append(slip)
+            details.append({'signal_entry': entry_float, 'nt8_price': ref_float, 'slippage': round(slip, 2), 'time_diff_hours': round(best_diff, 1), 'direction': signal.get('type', '?')})
+        except (ValueError, TypeError):
+            continue
+    if not slippages:
+        return {'slippage_moyen': None, 'reason': 'Aucun signal avec entry_price matche a une reference NT8'}
+    slippages.sort()
+    n = len(slippages)
+    slippage_moyen = sum(slippages) / n
+    slippage_median = slippages[n // 2] if n % 2 == 1 else (slippages[n // 2 - 1] + slippages[n // 2]) / 2
+    return {'slippage_moyen': round(slippage_moyen, 2), 'slippage_median': round(slippage_median, 2), 'slippage_min': round(slippages[0], 2), 'slippage_max': round(slippages[-1], 2), 'nb_comparaisons': n, 'details': details[:10], 'reason': f'Slippage calcule sur {n} signaux'}
+
+
 # INTERFACE STREAMLIT
 # ═══════════════════════════════════════════════════════════════
 
