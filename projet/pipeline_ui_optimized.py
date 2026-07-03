@@ -562,16 +562,38 @@ C:\\Users\\[Votre Nom]\\Documents\\NinjaTrader 8\\bin\\Custom\\Indicators\\
         if price_refs and history:
             st.divider()
             st.write("**📊 Winrate Réel calculé depuis vos références NT8**")
+
+            # Mapping des marchés détectés (gold, nasdaq, crude, sp500) → identifiants NT8 (gold_mgc, ...)
+            MARKET_TO_NT8 = {
+                "gold": "gold_mgc", "xau": "gold_mgc", "xauusd": "gold_mgc",
+                "nasdaq": "mnq_nasdaq", "nq": "mnq_nasdaq",
+                "crude": "mcl_crude", "oil": "mcl_crude", "wti": "mcl_crude",
+                "sp500": "mes_sp500", "es": "mes_sp500", "s&p": "mes_sp500",
+            }
+
             for username, ch in {**{u: c for u, c in history.items() if c["status"] == "activated"},
                                   **{u: c for u, c in history.items() if c["status"] == "short_test"}}.items():
-                market = ch.get("market", "custom")
+                # Récupérer les marchés couverts par le canal
+                markets_covered = ch.get("markets_covered") or ch.get("metrics", {}).get("markets_covered", [])
+                market = ch.get("market", "")
+
+                # Si pas de marché direct, mapper depuis markets_covered
+                if not market or market == "custom":
+                    for m in markets_covered:
+                        m_lower = m.lower()
+                        if m_lower in MARKET_TO_NT8:
+                            market = MARKET_TO_NT8[m_lower]
+                            break
+
                 # signals_sample provient de signal_detector.py : clés type/entry_price/
                 # target_price/stop_loss/date — c'est le format attendu par calculate_real_winrate
                 signals = ch.get("signals_sample") or ch.get("metrics", {}).get("signals_sample", [])
                 if not signals:
                     st.caption(f"⚪ {ch['title']} : pas d'échantillon de signaux stocké pour le calcul")
                     continue
-                wr_result = calculate_real_winrate(signals, price_refs, market)
+
+                # Tolérance temporelle étendue à 168h (7 jours) pour matcher les signaux de la semaine
+                wr_result = calculate_real_winrate(signals, price_refs, market, max_time_diff_hours=168.0)
                 if wr_result.get("winrate") is not None:
                     wr = wr_result["winrate"]
                     color = "🟢" if wr >= 60 else ("🟡" if wr >= 50 else "🔴")
