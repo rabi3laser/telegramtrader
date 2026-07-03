@@ -4,7 +4,12 @@ Usage: python test_real_channel.py @username_du_canal [nombre_messages]
 """
 import asyncio
 import sys
+import io
 from pathlib import Path
+
+# Forcer l'encodage UTF-8 pour Windows (support des emojis)
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # Charger les secrets depuis le fichier .streamlit/secrets.toml
 secrets_path = Path(__file__).parent / ".streamlit" / "secrets.toml"
