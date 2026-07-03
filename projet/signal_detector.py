@@ -8,29 +8,43 @@ from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 # Patterns de détection de signaux (multi-langues)
+# ASSOUPPLIS pour reconnaître plus de formats réels
 SIGNAL_PATTERNS = {
     'buy': [
-        r'\b(BUY|ACHETER|LONG|CALL|UP)\b',
+        r'\b(BUY|ACHETER|LONG|CALL|UP|GO\s*LONG|BUY\s*NOW|LONG\s*NOW)\b',
         r'🟢',
         r'✅',
+        r'📈',
         r'\b(GOLD|XAU|NASDAQ|NQ|CRUDE|OIL|SP500|ES).*?(BUY|LONG|UP)\b',
+        # Formats avec emojis communs
+        r'🟢\s*(BUY|LONG|CALL|UP)',
+        r'(BUY|LONG|CALL|UP)\s*🟢',
     ],
     'sell': [
-        r'\b(SELL|VENDRE|SHORT|PUT|DOWN)\b',
+        r'\b(SELL|VENDRE|SHORT|PUT|DOWN|GO\s*SHORT|SELL\s*NOW|SHORT\s*NOW)\b',
         r'🔴',
         r'❌',
+        r'📉',
         r'\b(GOLD|XAU|NASDAQ|NQ|CRUDE|OIL|SP500|ES).*?(SELL|SHORT|DOWN)\b',
+        # Formats avec emojis communs
+        r'🔴\s*(SELL|SHORT|PUT|DOWN)',
+        r'(SELL|SHORT|PUT|DOWN)\s*🔴',
     ],
     'targets': [
-        r'(TP|TARGET|OBJ|OBJECTIF)\s*:?\s*(\d+\.?\d*)',
+        r'(TP|TARGET|OBJ|OBJECTIF|TAKE\s*PROFIT)\s*:?\s*(\d[\d,\.]*)',
         r'(TP|TARGET)\s*(\d+)',
+        r'TP\s*1\s*:?\s*(\d[\d,\.]*)',
+        r'TP\s*2\s*:?\s*(\d[\d,\.]*)',
+        r'TP\s*3\s*:?\s*(\d[\d,\.]*)',
     ],
     'stop_loss': [
-        r'(SL|STOP\s*LOSS|STOP)\s*:?\s*(\d+\.?\d*)',
+        r'(SL|STOP\s*LOSS|STOP|SL\s*LOSS)\s*:?\s*(\d[\d,\.]*)',
     ],
     'entry': [
-        r'(ENTRY|ENTRÉE|PRICE|PRIX|@)\s*:?\s*(\d+\.?\d*)',
-        r'(BUY|SELL).*?(@|AT|À)\s*(\d+\.?\d*)',
+        r'(ENTRY|ENTRÉE|ENTREE|PRICE|PRIX|@)\s*:?\s*(\d[\d,\.]*)',
+        r'(BUY|SELL).*?(@|AT|À|@)\s*(\d[\d,\.]*)',
+        r'@\s*(\d[\d,\.]*)',
+        r'PRICE\s*:?\s*(\d[\d,\.]*)',
     ],
 }
 
@@ -130,7 +144,14 @@ def detect_markets(text: str) -> List[str]:
 
 def is_signal_message(text: str) -> bool:
     """
-    Détermine si un message contient un signal de trading
+    Détermine si un message contient un signal de trading.
+    
+    Logique ASSOUPPLIE :
+    1. Doit avoir un type de signal (BUY/SELL) — obligatoire
+    2. Doit mentionner un marché (GOLD/NASDAQ/etc.) — obligatoire
+    3. Le prix/target est un BONUS mais pas obligatoire
+       (beaucoup de canaux postent le signal sans le prix dans le même message,
+       ou le prix est dans une image/lien)
     
     Args:
         text: Texte du message
@@ -138,7 +159,7 @@ def is_signal_message(text: str) -> bool:
     Returns:
         True si c'est un signal, False sinon
     """
-    if not text or len(text) < 10:
+    if not text or len(text) < 5:
         return False
     
     # Doit avoir un type de signal (BUY ou SELL)
@@ -151,11 +172,10 @@ def is_signal_message(text: str) -> bool:
     if not markets:
         return False
     
-    # Bonus : a un prix ou target
-    has_price = extract_price(text, 'entry') is not None
-    has_target = extract_price(text, 'targets') is not None
-    
-    return has_price or has_target
+    # Le prix/target est un bonus mais pas obligatoire.
+    # Beaucoup de canaux postent "🟢 BUY GOLD" ou "LONG NASDAQ NOW"
+    # sans inclure le prix dans le même message.
+    return True
 
 
 def extract_signal_data(text: str, message_date: datetime = None) -> Optional[Dict]:
