@@ -1,0 +1,56 @@
+# Secrets - NE JAMAIS committer
+projet/.streamlit/secrets.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+dist/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Données locales
+*.session
+*.session-journal
+*.json.bak
+calibration_history.json
+price_references.json
+
+# Logs
+*.log
+
+# NinjaTrader exports
+NinjaTrader Grid*.csv
+Sortie de NinjaScript*.txt
+*.nt8bk
+
+# Archives
+*.rar
+*.zip
+
+# Raccourcis
+*.lnk

@@ -329,10 +329,38 @@ def delete_price_reference(ref_id: str) -> bool:
 # CALCUL WINRATE RÉEL
 # ═══════════════════════════════════════════════════════════════
 
-def calculate_real_winrate(signals: list, price_refs: list, market: str) -> dict:
+def _ref_datetime(ref: dict):
     """
-    Calcule le vrai winrate en comparant les signaux avec les références NT8.
-    Utilise SESSION HIGH MAX et SESSION LOW MIN pour la comparaison.
+    Reconstruit un datetime UTC-naive comparable à partir d'une référence NT8
+    (date_str format dd/mm/yyyy + time_str format HH:MM:SS).
+    Retourne None si la référence n'a pas de date/heure exploitable.
+    """
+    date_str = ref.get("date_str")
+    time_str = ref.get("time_str")
+    if not date_str or not time_str:
+        return None
+    try:
+        return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M:%S")
+    except Exception:
+        return None
+
+
+def calculate_real_winrate(signals: list, price_refs: list, market: str, max_time_diff_hours: float = 6.0) -> dict:
+    """
+    Calcule le vrai winrate en comparant chaque signal Telegram (heure d'émission
+    + entry/TP/SL) à la référence de prix NT8 la plus proche EN TEMPS (pas en prix).
+
+    Le prix et l'heure exacts proviennent de l'indicateur CalibrationPanel NT8,
+    capturés par l'utilisateur (capture d'écran → OCR → date_str/time_str/session_high/
+    session_low). C'est la source de vérité pour le broker réel de l'utilisateur.
+
+    Args:
+        signals: signaux extraits par signal_detector.py (clés: type, entry_price,
+                 target_price, stop_loss, date)
+        price_refs: références NT8 chargées via load_price_references()
+        market: identifiant marché interne (gold_mgc, mnq_nasdaq, ...)
+        max_time_diff_hours: écart maximum toléré entre l'heure du signal et
+                 l'heure de la référence NT8 pour la considérer exploitable
     """
     if not signals or not price_refs:
         return {"winrate": None, "reason": "Pas assez de données"}
@@ -341,31 +369,54 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str) -> dict
     if not market_refs:
         return {"winrate": None, "reason": f"Aucune référence NT8 pour {market}"}
 
+    # Pré-calculer les datetimes des références, ignorer celles sans date/heure exploitable
+    dated_refs = []
+    for r in market_refs:
+        dt = _ref_datetime(r)
+        if dt is not None:
+            dated_refs.append((dt, r))
+
     trades_won = trades_lost = trades_unknown = 0
 
     for signal in signals:
         entry = signal.get("entry_price")
-        tp    = signal.get("tp_price")
-        sl    = signal.get("sl_price")
-        direction = signal.get("direction", "").upper()
+        tp    = signal.get("target_price")
+        sl    = signal.get("stop_loss")
+        direction = (signal.get("type") or "").upper()
+        sig_date = signal.get("date")
 
-        if not entry or not tp or not sl:
+        if not entry or not tp or not sl or not direction:
             trades_unknown += 1
             continue
 
-        # Trouver la référence la plus proche du prix d'entrée
-        closest_ref = min(
-            [r for r in market_refs if r.get("close") or r.get("price")],
-            key=lambda r: abs((r.get("close") or r.get("price", 0)) - entry),
-            default=None
-        )
+        # ── Sélection de la référence par PROXIMITÉ TEMPORELLE (temps réel
+        # d'émission du signal), et non par proximité de prix. C'est la
+        # correction demandée : l'heure du signal doit matcher l'heure de
+        # capture NT8, pas juste "un prix qui ressemble".
+        closest_ref = None
+        if sig_date and dated_refs:
+            sig_dt = sig_date.replace(tzinfo=None) if getattr(sig_date, "tzinfo", None) else sig_date
+            best_diff = None
+            for ref_dt, ref in dated_refs:
+                diff_hours = abs((sig_dt - ref_dt).total_seconds()) / 3600
+                if diff_hours <= max_time_diff_hours and (best_diff is None or diff_hours < best_diff):
+                    best_diff = diff_hours
+                    closest_ref = ref
+
         if not closest_ref:
+            # Aucune référence temporellement assez proche du signal → indéterminé
+            # (on n'utilise plus le fallback par prix, qui produisait des faux
+            # positifs en comparant à des captures d'écran sans rapport temporel)
             trades_unknown += 1
             continue
 
         # Utiliser SESSION HIGH MAX / LOW MIN si disponibles, sinon HIGH/LOW barre
         ref_high = closest_ref.get("session_high") or closest_ref.get("high") or (closest_ref.get("close") or closest_ref.get("price"))
         ref_low  = closest_ref.get("session_low")  or closest_ref.get("low")  or (closest_ref.get("close") or closest_ref.get("price"))
+
+        if not ref_high or not ref_low:
+            trades_unknown += 1
+            continue
 
         if direction == "BUY":
             if ref_high >= tp:   trades_won  += 1
@@ -381,13 +432,15 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str) -> dict
     total = trades_won + trades_lost
     if total == 0:
         return {"winrate": None, "trades_won": 0, "trades_lost": 0,
-                "trades_unknown": trades_unknown, "reason": "TP/SL indéterminés"}
+                "trades_unknown": trades_unknown, "total_signals": len(signals),
+                "reason": "Aucune référence NT8 assez proche en temps des signaux "
+                          f"(tolérance: {max_time_diff_hours}h) — capturez plus de références"}
 
     return {
         "winrate": round((trades_won / total) * 100, 1),
         "trades_won": trades_won, "trades_lost": trades_lost,
         "trades_unknown": trades_unknown, "total_signals": len(signals),
-        "reason": f"{trades_won}/{total} trades gagnants"
+        "reason": f"{trades_won}/{total} trades gagnants (matching temporel ±{max_time_diff_hours}h)"
     }
 
 
