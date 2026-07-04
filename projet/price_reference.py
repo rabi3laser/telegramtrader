@@ -425,8 +425,8 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
         # correction demandée : l'heure du signal doit matcher l'heure de
         # capture NT8, pas juste "un prix qui ressemble".
         closest_ref = None
-        if sig_dt and dated_refs:
-            sig_dt = _parse_sig_date(sig_date)
+        sig_dt = _parse_sig_date(sig_date)
+        if sig_dt is not None and dated_refs:
             best_diff = None
             for ref_dt, ref in dated_refs:
                 diff_hours = abs((sig_dt - ref_dt).total_seconds()) / 3600
