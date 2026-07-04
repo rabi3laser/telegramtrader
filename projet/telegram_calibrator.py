@@ -96,7 +96,7 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
     # Configuration par défaut
     if config is None:
         config = {
-            'max_messages': 200,
+            'max_messages': 100,
             'min_messages': 50
         }
     

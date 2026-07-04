@@ -82,6 +82,7 @@ HISTORY_FILE = Path(__file__).parent / "calibration_history.json"
 # FONCTIONS DE PERSISTANCE
 # ═══════════════════════════════════════════════════════════════
 
+@st.cache_data(ttl=30)
 def load_history() -> dict:
     """Charge l'historique de calibration depuis le fichier JSON."""
     if HISTORY_FILE.exists():
@@ -99,7 +100,7 @@ def save_history(channels: dict):
     try:
         data = {"channels": channels, "last_updated": datetime.now().isoformat()}
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
+            json.dump(data, f, ensure_ascii=False, indent=2, separators=(",", ":""))
         return True
     except Exception as e:
         st.error(f"❌ Erreur sauvegarde: {e}")

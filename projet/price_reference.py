@@ -60,7 +60,10 @@ def preprocess_image(image_bytes: bytes):
 
         # Agrandir l'image pour meilleure précision OCR
         w, h = img.size
-        if w < 600:
+        if w > 1200:
+            scale = 1200 / w
+            img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
+        elif w < 600:
             scale = 600 / w
             img = img.resize((int(w * scale), int(h * scale)), Image.LANCZOS)
 
@@ -291,6 +294,7 @@ def parse_calibration_panel(ocr_text: str) -> dict:
 # PERSISTANCE
 # ═══════════════════════════════════════════════════════════════
 
+@st.cache_data(ttl=30)
 def load_price_references() -> list:
     if PRICE_REF_FILE.exists():
         try:
@@ -308,7 +312,7 @@ def save_price_reference(ref: dict) -> bool:
     refs.append(ref)
     try:
         with open(PRICE_REF_FILE, "w", encoding="utf-8") as f:
-            json.dump({"references": refs, "last_updated": datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+            json.dump({"references": refs, "last_updated": datetime.now().isoformat()}, f, ensure_ascii=False, separators=(",", ":"))
         return True
     except Exception as e:
         st.error(f"❌ Erreur sauvegarde: {e}")
@@ -319,7 +323,7 @@ def delete_price_reference(ref_id: str) -> bool:
     refs = [r for r in load_price_references() if r.get("id") != ref_id]
     try:
         with open(PRICE_REF_FILE, "w", encoding="utf-8") as f:
-            json.dump({"references": refs, "last_updated": datetime.now().isoformat()}, f, ensure_ascii=False, indent=2)
+            json.dump({"references": refs, "last_updated": datetime.now().isoformat()}, f, ensure_ascii=False, separators=(",", ":"))
         return True
     except Exception:
         return False
