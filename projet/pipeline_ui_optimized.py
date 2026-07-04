@@ -613,8 +613,19 @@ C:\\Users\\[Votre Nom]\\Documents\\NinjaTrader 8\\bin\\Custom\\Indicators\\
                 if wr_result.get("winrate") is not None:
                     wr = wr_result["winrate"]
                     color = "🟢" if wr >= 60 else ("🟡" if wr >= 50 else "🔴")
+                    n_trades = wr_result['trades_won'] + wr_result['trades_lost']
+                    rel_icon = wr_result.get('reliability_icon', '')
+                    rel_label = wr_result.get('reliability', '')
                     st.write(f"{color} **{ch['title']}** : Winrate réel = **{wr}%** "
-                             f"({wr_result['trades_won']}/{wr_result['trades_won']+wr_result['trades_lost']} trades)")
+                             f"({wr_result['trades_won']}/{n_trades} trades) "
+                             f"— Fiabilité {rel_icon} {rel_label}")
+                    if wr_result.get('reliability') == 'faible':
+                        st.caption("⚠️ Échantillon trop petit (< 10 trades matchés) — "
+                                   "ce winrate n'est pas statistiquement significatif. "
+                                   "Capturez plus de références NT8 à différents jours/heures pour fiabiliser.")
+                    elif wr_result.get('reliability') == 'moyenne':
+                        st.caption("🟡 Échantillon moyen (10-29 trades) — indicatif mais à consolider "
+                                   "avec plus de références NT8.")
                 else:
                     st.caption(f"⚪ {ch['title']} : {wr_result.get('reason', 'winrate indéterminé')}")
 

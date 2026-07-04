@@ -502,11 +502,28 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
                 "reason": "Aucune référence NT8 assez proche en temps des signaux "
                           f"(tolérance: {max_time_diff_hours}h) — capturez plus de références"}
 
+    # ── Fiabilité statistique de l'échantillon ──
+    # Un winrate calculé sur peu de trades n'est pas significatif.
+    # Seuils indicatifs : <10 trades = faible, 10-29 = moyen, >=30 = fiable.
+    if total < 10:
+        reliability = "faible"
+        reliability_icon = "🔴"
+    elif total < 30:
+        reliability = "moyenne"
+        reliability_icon = "🟡"
+    else:
+        reliability = "fiable"
+        reliability_icon = "🟢"
+
     return {
         "winrate": round((trades_won / total) * 100, 1),
         "trades_won": trades_won, "trades_lost": trades_lost,
         "trades_unknown": trades_unknown, "total_signals": len(signals),
-        "reason": f"{trades_won}/{total} trades gagnants (matching temporel ±{max_time_diff_hours}h)"
+        "reliability": reliability,
+        "reliability_icon": reliability_icon,
+        "reason": f"{trades_won}/{total} trades gagnants (matching temporel ±{max_time_diff_hours}h) "
+                  f"— fiabilité {reliability_icon} {reliability} ({total} trades matchés). "
+                  f"Pour un winrate fiable, capturez plus de références NT8 à différents moments."
     }
 
 
