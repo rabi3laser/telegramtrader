@@ -854,7 +854,7 @@ elif st.session_state.current_step == 3:
                     f"{market_info['icon']} {market_info['name']} - {len(channels)} canal(aux)",
                     expanded=True
                 ):
-                    for channel in channels:
+                    for ch_idx, channel in enumerate(channels):
                         col1, col2, col3 = st.columns([3, 2, 1])
                         with col1:
                             verified_badge = "✅" if channel.get("is_verified") else ""
@@ -863,7 +863,7 @@ elif st.session_state.current_step == 3:
                         with col2:
                             st.metric("Membres", f"{channel['members']:,}")
                         with col3:
-                            if st.button("🗑️", key=f"remove_{market}_{channel['username']}"):
+                            if st.button("🗑️", key=f"remove_{market}_{ch_idx}_{channel['username']}"):
                                 st.session_state.selected_channels[market].remove(channel)
                                 st.rerun()
 
