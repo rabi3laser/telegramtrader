@@ -437,7 +437,7 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
         direction = (signal.get("type") or "").upper()
         sig_date = signal.get("date")
 
-        if not entry or not tp or not sl or not direction:
+        if not direction or (not tp and not sl):
             trades_unknown += 1
             continue
 
@@ -471,13 +471,13 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
             continue
 
         if direction == "BUY":
-            if ref_high >= tp:   trades_won  += 1
-            elif ref_low <= sl:  trades_lost += 1
-            else:                trades_unknown += 1
+            if tp and ref_high >= tp:   trades_won  += 1
+            elif sl and ref_low <= sl:  trades_lost += 1
+            else:                       trades_unknown += 1
         elif direction == "SELL":
-            if ref_low <= tp:    trades_won  += 1
-            elif ref_high >= sl: trades_lost += 1
-            else:                trades_unknown += 1
+            if tp and ref_low <= tp:    trades_won  += 1
+            elif sl and ref_high >= sl: trades_lost += 1
+            else:                       trades_unknown += 1
         else:
             trades_unknown += 1
 
