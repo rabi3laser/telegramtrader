@@ -266,7 +266,10 @@ async def calibrate_channel(client: TelegramClient, channel_info: Dict, config: 
                 'sell_signals': analysis['sell_signals'],
                 'signal_rate': analysis['signal_rate']
             },
-            'signals_sample': analysis['signals'][:30] if analysis['signals'] else []  # 30 premiers signaux (plus de chances de matcher NT8)
+            # Stocker TOUS les signaux (pas juste un échantillon) pour permettre
+            # un backtest winrate sur toute la période récupérée. Plus il y a de
+            # signaux, plus le winrate est statistiquement significatif.
+            'signals_sample': analysis['signals'] if analysis['signals'] else []
         }
         
         # Ajouter une raison si rejeté

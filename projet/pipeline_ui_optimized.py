@@ -911,17 +911,23 @@ elif st.session_state.current_step == 4:
 
     # Paramètres de calibration (Mode Pro)
     if st.session_state.pro_mode:
-        with st.expander("🔧 Paramètres de Calibration Avancés"):
+        with st.expander("🔧 Paramètres de Calibration Avancés", expanded=True):
+            st.caption("💡 Plus de messages = période plus longue analysée = winrate plus significatif. "
+                       "Un canal actif poste ~100 messages/semaine, donc 1000 messages ≈ 2-3 mois d'historique.")
             col1, col2 = st.columns(2)
             with col1:
-                min_messages = st.number_input("Messages minimum", 50, 500, 100, 10)
-                target_messages = st.number_input("Messages cible", 100, 500, 200, 10)
+                min_messages = st.number_input("Messages minimum", 50, 2000, 100, 10)
+                target_messages = st.number_input(
+                    "Messages à récupérer (max)", 100, 5000, 500, 100,
+                    help="Nombre de messages remontés dans l'historique du canal. "
+                         "Plus élevé = période plus longue = winrate plus fiable, mais calibration plus lente."
+                )
             with col2:
                 min_signals = st.slider("Signaux minimum", 5, 50, 15, 1)
                 min_winrate = st.slider("Winrate minimum (%)", 40, 70, 50, 5)
     else:
         min_messages = 100
-        target_messages = 200
+        target_messages = 500  # Par défaut 500 (≈ 1 mois d'historique sur canal actif)
         min_signals = 15
         min_winrate = 50
 
