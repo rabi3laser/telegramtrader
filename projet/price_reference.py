@@ -216,10 +216,20 @@ def parse_calibration_panel(ocr_text: str) -> dict:
             result["timeframe"] = mn.group(1)
 
     # ── Date et Heure ─────────────────────────────────────────
+    # Format 1: DATE : 04/07/2026 14:30:00 (sur une seule ligne)
     m = re.search(r"DATE\s*[:\|]\s*(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)", text, re.IGNORECASE)
     if m:
         result["date_str"] = m.group(1)
         result["time_str"] = m.group(2)
+    else:
+        # Format 2: date et heure sur des lignes séparées
+        # ex: "📅 Date (dd/mm/yyyy)\n04/07/2026\n⏰ Heure barre (HH:MM:SS)\n14:30:00"
+        m_date = re.search(r"(\d{2}/\d{2}/\d{4})", text)
+        if m_date:
+            result["date_str"] = m_date.group(1)
+        m_time = re.search(r"(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)", text)
+        if m_time:
+            result["time_str"] = m_time.group(1)
 
     # ── BARRE COURANTE : OHLC ─────────────────────────────────
     # OPEN (barre courante - pas OPEN SES.)
