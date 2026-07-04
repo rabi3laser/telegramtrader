@@ -337,12 +337,42 @@ def _ref_datetime(ref: dict):
     """
     date_str = ref.get("date_str")
     time_str = ref.get("time_str")
-    if not date_str or not time_str:
+    if not time_str:
         return None
+    # Si pas de date_str, utiliser date_added (ISO) ou aujourd'hui
+    if not date_str:
+        date_added = ref.get("date_added")
+        if date_added:
+            try:
+                return datetime.fromisoformat(date_added).replace(tzinfo=None)
+            except Exception:
+                pass
+        # Fallback: aujourd'hui + time_str
+        try:
+            today = datetime.now().strftime("%d/%m/%Y")
+            return datetime.strptime(f"{today} {time_str}", "%d/%m/%Y %H:%M:%S")
+        except Exception:
+            return None
     try:
         return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M:%S")
     except Exception:
         return None
+
+
+def _parse_sig_date(sig_date):
+    """Convertit sig_date (datetime ou string ISO) en datetime naive comparable."""
+    if sig_date is None:
+        return None
+    # Si c'est déjà un datetime
+    if hasattr(sig_date, "year"):
+        return sig_date.replace(tzinfo=None) if getattr(sig_date, "tzinfo", None) else sig_date
+    # Si c'est une string ISO
+    if isinstance(sig_date, str):
+        try:
+            return datetime.fromisoformat(sig_date).replace(tzinfo=None)
+        except Exception:
+            return None
+    return None
 
 
 def calculate_real_winrate(signals: list, price_refs: list, market: str, max_time_diff_hours: float = 6.0) -> dict:
@@ -394,8 +424,8 @@ def calculate_real_winrate(signals: list, price_refs: list, market: str, max_tim
         # correction demandée : l'heure du signal doit matcher l'heure de
         # capture NT8, pas juste "un prix qui ressemble".
         closest_ref = None
-        if sig_date and dated_refs:
-            sig_dt = sig_date.replace(tzinfo=None) if getattr(sig_date, "tzinfo", None) else sig_date
+        if sig_dt and dated_refs:
+            sig_dt = _parse_sig_date(sig_date)
             best_diff = None
             for ref_dt, ref in dated_refs:
                 diff_hours = abs((sig_dt - ref_dt).total_seconds()) / 3600
@@ -467,7 +497,7 @@ def calculate_slippage(signals: list, price_refs: list, market: str, max_time_di
         sig_date = signal.get('date')
         if not entry or not sig_date:
             continue
-        sig_dt = sig_date.replace(tzinfo=None) if getattr(sig_date, 'tzinfo', None) else sig_date
+        sig_dt = _parse_sig_date(sig_date)
         closest_ref = None
         best_diff = None
         for ref_dt, ref in dated_refs:
