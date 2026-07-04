@@ -127,10 +127,10 @@ namespace NinjaTrader.NinjaScript.Indicators
                     ? string.Format("  VOLUME     : {0:N0}\n", vol)
                     : "";
 
-                // ── Heure / Date ──────────────────────────────
-                string barTime = Time[0].ToString("HH:mm:ss");
+                // ── Heure / Date (avec millisecondes pour précision broker) ──
+                string barTime = Time[0].ToString("HH:mm:ss.fff");
                 string barDate = Time[0].ToString("dd/MM/yyyy");
-                string srvTime = DateTime.Now.ToString("HH:mm:ss");
+                string srvTime = DateTime.Now.ToString("HH:mm:ss.fff");
 
                 // ── Instrument / Timeframe ────────────────────
                 string instr = Instrument.FullName;

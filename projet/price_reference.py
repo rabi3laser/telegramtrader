@@ -213,7 +213,7 @@ def parse_calibration_panel(ocr_text: str) -> dict:
             result["timeframe"] = mn.group(1)
 
     # ── Date et Heure ─────────────────────────────────────────
-    m = re.search(r"DATE\s*[:\|]\s*(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2})", text, re.IGNORECASE)
+    m = re.search(r"DATE\s*[:\|]\s*(\d{2}/\d{2}/\d{4})\s+(\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?)", text, re.IGNORECASE)
     if m:
         result["date_str"] = m.group(1)
         result["time_str"] = m.group(2)
@@ -354,7 +354,8 @@ def _ref_datetime(ref: dict):
         except Exception:
             return None
     try:
-        return datetime.strptime(f"{date_str} {time_str}", "%d/%m/%Y %H:%M:%S")
+        fmt = "%d/%m/%Y %H:%M:%S.%f" if "." in time_str else "%d/%m/%Y %H:%M:%S"
+        return datetime.strptime(f"{date_str} {time_str}", fmt)
     except Exception:
         return None
 
