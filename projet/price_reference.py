@@ -297,6 +297,10 @@ def parse_calibration_panel(ocr_text: str) -> dict:
     if m:
         result["server_time"] = m.group(1)
 
+    # ── Fallback : si time_str vide, utiliser server_time ──
+    if not result.get("time_str") and result.get("server_time"):
+        result["time_str"] = result["server_time"]
+
     return result
 
 
