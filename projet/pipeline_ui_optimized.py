@@ -100,7 +100,7 @@ def save_history(channels: dict):
     try:
         data = {"channels": channels, "last_updated": datetime.now().isoformat()}
         with open(HISTORY_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, ensure_ascii=False, indent=2, separators=(",", ":""))
+            json.dump(data, f, ensure_ascii=False, separators=(",", ":"))
         return True
     except Exception as e:
         st.error(f"❌ Erreur sauvegarde: {e}")
