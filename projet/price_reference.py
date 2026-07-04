@@ -337,27 +337,44 @@ def _ref_datetime(ref: dict):
     """
     date_str = ref.get("date_str")
     time_str = ref.get("time_str")
+
+    # Cas 1: date_str + time_str tous les deux présents
+    if date_str and time_str:
+        try:
+            fmt = "%d/%m/%Y %H:%M:%S.%f" if "." in time_str else "%d/%m/%Y %H:%M:%S"
+            return datetime.strptime(f"{date_str} {time_str}", fmt)
+        except Exception:
+            pass
+
+    # Cas 2: time_str présent mais pas date_str → date_added + time_str
+    if time_str and not date_str:
+        date_added = ref.get("date_added")
+        if date_added:
+            try:
+                base_dt = datetime.fromisoformat(date_added).replace(tzinfo=None)
+                # Combiner la date de date_added avec l'heure de time_str
+                t = datetime.strptime(time_str.split(".")[0], "%H:%M:%S").time()
+                return base_dt.replace(hour=t.hour, minute=t.minute, second=t.second)
+            except Exception:
+                pass
+        # Fallback: aujourd'hui + time_str
+        try:
+            today = datetime.now().strftime("%d/%m/%Y")
+            fmt = "%d/%m/%Y %H:%M:%S.%f" if "." in time_str else "%d/%m/%Y %H:%M:%S"
+            return datetime.strptime(f"{today} {time_str}", fmt)
+        except Exception:
+            pass
+
+    # Cas 3: pas de time_str du tout → utiliser date_added (timestamp de sauvegarde)
     if not time_str:
-        return None
-    # Si pas de date_str, utiliser date_added (ISO) ou aujourd'hui
-    if not date_str:
         date_added = ref.get("date_added")
         if date_added:
             try:
                 return datetime.fromisoformat(date_added).replace(tzinfo=None)
             except Exception:
                 pass
-        # Fallback: aujourd'hui + time_str
-        try:
-            today = datetime.now().strftime("%d/%m/%Y")
-            return datetime.strptime(f"{today} {time_str}", "%d/%m/%Y %H:%M:%S")
-        except Exception:
-            return None
-    try:
-        fmt = "%d/%m/%Y %H:%M:%S.%f" if "." in time_str else "%d/%m/%Y %H:%M:%S"
-        return datetime.strptime(f"{date_str} {time_str}", fmt)
-    except Exception:
-        return None
+
+    return None
 
 
 def _parse_sig_date(sig_date):
