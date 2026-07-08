@@ -98,10 +98,59 @@ def _build_payload(session_string: str) -> dict:
     }
 
     # ── Comptes & connexions ──────────────────────────────────────────────
+    # Si l'Add-On C# n'est pas installé, last_accounts est None.
+    # On construit un accounts_status synthétique depuis last_price
+    # (remonté par la stratégie V3 via nt8_current_price.json) pour
+    # que le frontend affiche quand même le compte actif et le solde.
+    accounts_status_payload = last_accounts if last_accounts else None
+
+    if not accounts_status_payload and last_price:
+        # Construire un accounts_status minimal depuis price_info
+        # Champs écrits par la stratégie V3 : mid, daily_pnl, account_balance,
+        # trading_blocked, position_open (pas d'account_name ni d'instrument)
+        # Champs écrits par l'Add-On : + instrument, last_price, tick_size, point_value
+        account_name = (
+            last_price.get("account_name")
+            or last_price.get("account")
+            or status.get("account_name")  # stocké lors de la génération du token
+        )
+        balance = last_price.get("account_balance")
+        daily_pnl = last_price.get("daily_pnl")
+        instrument = last_price.get("instrument")
+        # La V3 écrit "mid" (prix du close), l'Add-On écrit "last_price"
+        last_px = last_price.get("last_price") or last_price.get("mid") or last_price.get("price")
+        tick_size = last_price.get("tick_size")
+        point_value = last_price.get("point_value")
+
+        synthetic: dict = {}
+        if account_name:
+            synthetic["selected_account"] = account_name
+            acc_entry: dict = {"name": account_name}
+            if balance is not None:
+                acc_entry["balance"] = balance
+            if daily_pnl is not None:
+                acc_entry["daily_pnl"] = daily_pnl
+            synthetic["accounts"] = [acc_entry]
+
+        if instrument:
+            synthetic["instruments"] = [instrument]
+            ai: dict = {"name": instrument}
+            if tick_size is not None:
+                ai["tick_size"] = tick_size
+            if point_value is not None:
+                ai["point_value"] = point_value
+            if last_px is not None:
+                ai["last_price"] = last_px
+            synthetic["active_instrument"] = ai
+
+        if synthetic:
+            synthetic["_source"] = "price_info"  # indique que c'est un fallback
+            accounts_status_payload = synthetic
+
     accounts = {
         "linked": linked,
         "connected": connected,
-        "accounts_status": last_accounts if last_accounts else None,
+        "accounts_status": accounts_status_payload,
     }
 
     # ── Kill switch ───────────────────────────────────────────────────────
