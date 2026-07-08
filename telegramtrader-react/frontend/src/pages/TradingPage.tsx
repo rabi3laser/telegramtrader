@@ -1,18 +1,36 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Send, Zap, Info, History, Target, Percent, AlertCircle } from 'lucide-react'
+import { Send, Zap, Info, History, Target, Percent, AlertCircle, CheckCircle2, Landmark } from 'lucide-react'
+import { nt8AgentService } from '../services/nt8AgentService'
+import { useConnectorWS } from '../hooks/useConnectorWS'
+import { useAuthStore } from '../store/authStore'
 import { tradingService } from '../services/tradingService'
 import { MARKETS, type MarketType, type SignalType, type OrderExecutionType, type Signal } from '../types'
 
 type SizingMode = 'quantity' | 'risk'
 
+// Marchés NT8 connus (fallback si NT8 ne remonte pas la liste)
+const NT8_MARKETS_FALLBACK: Record<string, { name: string; icon: string; instrument: string }> = {
+  gold_mgc:   { name: 'Gold (MGC)',      icon: '🥇', instrument: 'MGC' },
+  mnq_nasdaq: { name: 'Nasdaq (MNQ)',    icon: '📊', instrument: 'MNQ' },
+  mcl_crude:  { name: 'Crude Oil (MCL)', icon: '🛢️', instrument: 'MCL' },
+  mes_sp500:  { name: 'S&P 500 (MES)',   icon: '📈', instrument: 'MES' },
+  es_sp500:   { name: 'S&P 500 (ES)',    icon: '📈', instrument: 'ES' },
+  nq_nasdaq:  { name: 'Nasdaq (NQ)',     icon: '📊', instrument: 'NQ' },
+  gc_gold:    { name: 'Gold (GC)',       icon: '🥇', instrument: 'GC' },
+  cl_crude:   { name: 'Crude Oil (CL)',  icon: '🛢️', instrument: 'CL' },
+  custom:     { name: 'Personnalisé',    icon: '🔍', instrument: '' },
+}
+
 export default function TradingPage() {
   const queryClient = useQueryClient()
+  const { isAuthenticated } = useAuthStore()
 
   const [signalForm, setSignalForm] = useState({
     type: 'BUY' as SignalType,
-    market: 'gold_mgc' as MarketType,
+    market: 'gold_mgc' as string,
+    instrument: '',   // instrument NT8 libre (ex: "MGC", "MNQ", "AAPL"...)
     order_type: 'MARKET' as OrderExecutionType,
     entry_price: '',
     target_price: '',
@@ -24,10 +42,28 @@ export default function TradingPage() {
   const [sizingMode, setSizingMode] = useState<SizingMode>('quantity')
   const [showConfirm, setShowConfirm] = useState(false)
 
+  // ── Statut agent (pour savoir si lié) ─────────────────────────────────
+  const { data: agentStatus } = useQuery({
+    queryKey: ['nt8-agent', 'status'],
+    queryFn: nt8AgentService.getStatus,
+    refetchInterval: 5000,
+    retry: 2,
+  })
+
+  // ── WebSocket temps réel (comptes, instruments disponibles) ───────────
+  const ws = useConnectorWS(!!agentStatus?.linked)
+
+  // Compte actif depuis le WebSocket
+  const activeAccount = ws.accounts?.accounts_status?.selected_account ?? null
+
+  // Liste des instruments disponibles depuis NT8 (via heartbeat)
+  // Format attendu dans last_accounts : { instruments: ["MGC", "MNQ", "MCL", ...] }
+  const nt8Instruments: string[] = ws.accounts?.accounts_status?.instruments ?? []
+
+  // Historique des trades
   const { data: history, isLoading: historyLoading, isError: historyError } = useQuery({
     queryKey: ['trading', 'history'],
     queryFn: () => tradingService.getTradeHistory(50),
-    // Retry limité pour ne pas bloquer l'UI trop longtemps si le backend est down
     retry: 2,
   })
 
@@ -37,27 +73,42 @@ export default function TradingPage() {
     retry: 2,
   })
 
+  // ── Mutation d'exécution — utilise directement l'agent NT8 ────────────
   const executeMutation = useMutation({
     mutationFn: () => {
-      const signal: Signal = {
+      // Déterminer l'instrument NT8 à utiliser
+      // Priorité : instrument libre saisi > instrument du marché sélectionné
+      const instrumentName = signalForm.instrument.trim()
+        || NT8_MARKETS_FALLBACK[signalForm.market]?.instrument
+        || signalForm.market
+
+      const signal = {
         id: `manual-${Date.now()}`,
         type: signalForm.type,
         entry_price: parseFloat(signalForm.entry_price) || 0,
         target_price: signalForm.target_price ? parseFloat(signalForm.target_price) : undefined,
         target_price_2: signalForm.target_price_2 ? parseFloat(signalForm.target_price_2) : undefined,
         stop_loss: signalForm.stop_loss ? parseFloat(signalForm.stop_loss) : undefined,
-        market: signalForm.market,
+        market: instrumentName,  // on envoie le nom d'instrument NT8 directement
         source_channel: 'manuel',
         date: new Date().toISOString(),
         order_type: signalForm.order_type,
         quantity: sizingMode === 'quantity' ? parseInt(signalForm.quantity, 10) || 1 : undefined,
         risk_pct: sizingMode === 'risk' ? parseFloat(signalForm.risk_pct) || undefined : undefined,
       }
-      return tradingService.executeSignal(signal, 'nt8')
+
+      // Si l'agent NT8 est lié → pousser directement via nt8AgentService
+      // (évite le passage par CrossTrade qui génère une erreur 400)
+      if (agentStatus?.linked) {
+        return nt8AgentService.pushSignal(signal)
+      }
+
+      // Fallback : route trading classique (CrossTrade)
+      return tradingService.executeSignal(signal as Signal, 'nt8')
     },
-    onSuccess: (res) => {
-      if (res.success) {
-        toast.success(res.message || 'Signal envoyé à NinjaTrader 8')
+    onSuccess: (res: any) => {
+      if (res.success !== false) {
+        toast.success(res.message || 'Signal envoyé à NinjaTrader 8 ✅')
         queryClient.invalidateQueries({ queryKey: ['trading', 'history'] })
       } else {
         toast.error(res.message || res.error || "Échec de l'exécution")
@@ -76,7 +127,6 @@ export default function TradingPage() {
       toast.error('Veuillez saisir un pourcentage de risque valide')
       return
     }
-    // Afficher la modal de confirmation avant d'envoyer l'ordre
     setShowConfirm(true)
   }
 
@@ -85,7 +135,11 @@ export default function TradingPage() {
     executeMutation.mutate()
   }
 
-  const market = MARKETS[signalForm.market as keyof typeof MARKETS]
+  // Nom d'affichage du marché sélectionné
+  const marketDisplay = NT8_MARKETS_FALLBACK[signalForm.market]
+  const displayName = signalForm.instrument.trim()
+    ? signalForm.instrument.trim()
+    : (marketDisplay?.name ?? signalForm.market)
 
   return (
     <div className="space-y-6">
@@ -105,6 +159,12 @@ export default function TradingPage() {
             </div>
             {/* Résumé du signal */}
             <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 mb-4 text-sm space-y-1">
+              {activeAccount && (
+                <div className="flex justify-between border-b border-gray-200 dark:border-gray-700 pb-1 mb-1">
+                  <span className="text-gray-500 dark:text-gray-400">Compte</span>
+                  <span className="font-semibold text-green-700 dark:text-green-400">{activeAccount}</span>
+                </div>
+              )}
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400">Direction</span>
                 <span className={`font-semibold ${signalForm.type === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
@@ -112,8 +172,8 @@ export default function TradingPage() {
                 </span>
               </div>
               <div className="flex justify-between">
-                <span className="text-gray-500 dark:text-gray-400">Marché</span>
-                <span className="font-medium">{market?.icon} {market?.name ?? signalForm.market}</span>
+                <span className="text-gray-500 dark:text-gray-400">Instrument</span>
+                <span className="font-medium">{marketDisplay?.icon ?? '🔍'} {displayName}</span>
               </div>
               <div className="flex justify-between">
                 <span className="text-gray-500 dark:text-gray-400">Type d'ordre</span>
@@ -165,6 +225,32 @@ export default function TradingPage() {
         </p>
       </div>
 
+      {/* ── Compte actif (affiché si agent connecté) ──────────────────────── */}
+      {agentStatus?.linked && activeAccount && (
+        <div className="flex items-center gap-3 rounded-lg p-3 bg-green-50 dark:bg-green-900/20 border border-green-400 dark:border-green-700 text-sm">
+          <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+          <div>
+            <p className="font-semibold text-green-800 dark:text-green-300">
+              Compte actif : {activeAccount}
+            </p>
+            <p className="text-xs text-green-700 dark:text-green-400">
+              Les signaux seront exécutés sur ce compte. Pour changer de compte, allez dans <strong>Paramètres</strong>.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── Avertissement si agent non lié ────────────────────────────────── */}
+      {!agentStatus?.linked && (
+        <div className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+          <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
+          <p>
+            Aucun agent NT8 lié. Allez dans <strong>Paramètres</strong> pour configurer votre agent local NinjaTrader 8.
+            Sans agent, les ordres passeront par CrossTrade (si configuré).
+          </p>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <form onSubmit={handleExecute} className="card space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -173,14 +259,14 @@ export default function TradingPage() {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium mb-1">Type</label>
+              <label className="block text-sm font-medium mb-1">Direction</label>
               <select
                 className="input"
                 value={signalForm.type}
                 onChange={(e) => setSignalForm({ ...signalForm, type: e.target.value as SignalType })}
               >
-                <option value="BUY">BUY</option>
-                <option value="SELL">SELL</option>
+                <option value="BUY">BUY ↑</option>
+                <option value="SELL">SELL ↓</option>
               </select>
             </div>
             <div>
@@ -188,17 +274,63 @@ export default function TradingPage() {
               <select
                 className="input"
                 value={signalForm.market}
-                onChange={(e) => setSignalForm({ ...signalForm, market: e.target.value as MarketType })}
+                onChange={(e) => {
+                  const key = e.target.value
+                  setSignalForm({
+                    ...signalForm,
+                    market: key,
+                    // Pré-remplir l'instrument si connu, vider si custom
+                    instrument: key === 'custom' ? '' : (NT8_MARKETS_FALLBACK[key]?.instrument ?? ''),
+                  })
+                }}
               >
-                {Object.entries(MARKETS)
+                {Object.entries(NT8_MARKETS_FALLBACK)
                   .filter(([key]) => key !== 'custom')
                   .map(([key, m]) => (
                     <option key={key} value={key}>
                       {m.icon} {m.name}
                     </option>
                   ))}
+                <option value="custom">🔍 Autre instrument…</option>
               </select>
             </div>
+          </div>
+
+          {/* ── Instrument NT8 libre ─────────────────────────────────────── */}
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Instrument NinjaTrader
+              {nt8Instruments.length > 0 && (
+                <span className="text-xs text-gray-400 dark:text-gray-500 ml-2">
+                  (instruments détectés sur votre compte)
+                </span>
+              )}
+            </label>
+            {nt8Instruments.length > 0 ? (
+              <select
+                className="input"
+                value={signalForm.instrument || NT8_MARKETS_FALLBACK[signalForm.market]?.instrument || ''}
+                onChange={(e) => setSignalForm({ ...signalForm, instrument: e.target.value })}
+              >
+                {nt8Instruments.map((inst) => (
+                  <option key={inst} value={inst}>{inst}</option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                className="input"
+                placeholder={NT8_MARKETS_FALLBACK[signalForm.market]?.instrument || 'Ex: MGC, MNQ, MCL, ES, NQ...'}
+                value={signalForm.instrument}
+                onChange={(e) => setSignalForm({ ...signalForm, instrument: e.target.value })}
+              />
+            )}
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+              {nt8Instruments.length > 0
+                ? `${nt8Instruments.length} instrument(s) disponible(s) sur le compte ${activeAccount ?? ''}`
+                : "Laissez vide pour utiliser l'instrument par défaut du marché sélectionné. L'agent NT8 doit être connecté pour voir la liste automatiquement."
+              }
+            </p>
           </div>
 
           <div>
@@ -321,7 +453,6 @@ export default function TradingPage() {
         <div className="card space-y-4">
           <h2 className="text-lg font-semibold">Positions actives</h2>
           {positionsError ? (
-            // Erreur API positions : afficher un message explicite plutôt que rien
             <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
               <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
               <p>
@@ -347,6 +478,43 @@ export default function TradingPage() {
               ))}
             </div>
           )}
+
+          {/* ── Comptes disponibles (depuis WebSocket) ──────────────────── */}
+          {agentStatus?.linked && ws.accounts?.accounts_status?.accounts && ws.accounts.accounts_status.accounts.length > 0 && (
+            <div className="border-t border-gray-200 dark:border-gray-700 pt-3">
+              <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
+                <Landmark className="h-4 w-4" /> Comptes NinjaTrader
+              </h3>
+              <div className="space-y-1.5">
+                {ws.accounts.accounts_status.accounts.map((acc) => {
+                  const isActive = acc.name === activeAccount
+                  return (
+                    <div key={acc.name} className={`flex items-center justify-between text-xs rounded-lg px-3 py-2 border ${
+                      isActive
+                        ? 'border-green-400 bg-green-50 dark:bg-green-900/20 dark:border-green-700'
+                        : 'border-gray-200 dark:border-gray-700'
+                    }`}>
+                      <div className="flex items-center gap-2">
+                        {isActive && <CheckCircle2 className="h-3.5 w-3.5 text-green-600 dark:text-green-400" />}
+                        <span className={isActive ? 'font-semibold text-green-800 dark:text-green-300' : 'text-gray-700 dark:text-gray-300'}>
+                          {acc.name}
+                        </span>
+                        {isActive && <span className="text-green-600 dark:text-green-400 text-xs">(actif)</span>}
+                      </div>
+                      {acc.balance != null && (
+                        <span className="font-mono text-gray-500 dark:text-gray-400">
+                          {acc.balance.toLocaleString('fr-FR', { minimumFractionDigits: 0, maximumFractionDigits: 0 })} $
+                        </span>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="text-xs text-gray-400 dark:text-gray-500 mt-2">
+                Pour changer de compte actif → <strong>Paramètres</strong>
+              </p>
+            </div>
+          )}
         </div>
       </div>
 
@@ -357,7 +525,6 @@ export default function TradingPage() {
         {historyLoading ? (
           <p className="text-sm text-gray-500 dark:text-gray-400">Chargement...</p>
         ) : historyError ? (
-          // Erreur API historique : message explicite pour ne pas laisser l'UI vide
           <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
             <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
             <p>
@@ -372,7 +539,7 @@ export default function TradingPage() {
               <thead>
                 <tr className="text-left text-gray-500 dark:text-gray-400 border-b border-gray-200 dark:border-gray-700">
                   <th className="py-2 pr-4">Type</th>
-                  <th className="py-2 pr-4">Marché</th>
+                  <th className="py-2 pr-4">Instrument</th>
                   <th className="py-2 pr-4">Entrée</th>
                   <th className="py-2 pr-4">Quantité</th>
                   <th className="py-2 pr-4">Statut</th>
@@ -385,7 +552,9 @@ export default function TradingPage() {
                     <td className="py-2 pr-4">
                       <span className={t.type === 'BUY' ? 'badge-success' : 'badge-danger'}>{t.type}</span>
                     </td>
-                    <td className="py-2 pr-4">{MARKETS[t.market as keyof typeof MARKETS]?.icon} {t.market}</td>
+                    <td className="py-2 pr-4">
+                      {MARKETS[t.market as keyof typeof MARKETS]?.icon ?? '🔍'} {t.market}
+                    </td>
                     <td className="py-2 pr-4">{t.entry_price}</td>
                     <td className="py-2 pr-4">{t.quantity}</td>
                     <td className="py-2 pr-4">{t.status ?? '-'}</td>

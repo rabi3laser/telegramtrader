@@ -32,6 +32,8 @@ export interface AccountsStatus {
   selected_account?: string
   accounts?: NT8Account[]
   connections?: NT8Connection[]
+  /** Liste des instruments disponibles sur le compte actif (remontée par l'agent via heartbeat) */
+  instruments?: string[]
 }
 
 export interface AccountsStatusResponse {

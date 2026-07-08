@@ -278,13 +278,36 @@ def write_command_file(command: dict) -> None:
 
 
 def read_accounts_status_file():
+    """Lit nt8_accounts_status.json (écrit par le C# Add-On) et enrichit le
+    résultat avec la liste des instruments détectés depuis nt8_current_price.json.
+    Cela évite de modifier le C# (qui nécessite une recompilation dans NinjaTrader).
+    Le champ 'instruments' est une liste de noms d'instruments NT8 (ex: ["MGC", "MNQ"]).
+    """
+    data = None
     try:
         if ACCOUNTS_STATUS_FILE.exists():
             with open(ACCOUNTS_STATUS_FILE, "r", encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
     except Exception:
         pass
-    return None
+
+    # Enrichissement : ajouter les instruments depuis le fichier de prix
+    # (nt8_current_price.json contient le champ "instrument" = Instrument.FullName)
+    # On construit une liste dédupliquée d'instruments connus.
+    if data is not None and not data.get("instruments"):
+        instruments = []
+        try:
+            price_data = read_price_file()
+            if price_data and price_data.get("instrument"):
+                instr = price_data["instrument"].strip()
+                if instr and instr not in instruments:
+                    instruments.append(instr)
+        except Exception:
+            pass
+        if instruments:
+            data["instruments"] = instruments
+
+    return data
 
 
 
