@@ -190,15 +190,15 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
       ok: nt8Health?.active ?? null,
       detail: nt8Health?.message ?? (agentConnected ? 'En attente de données NT8…' : 'Agent non connecté'),
       fix: agentConnected && !nt8Health?.active
-        ? 'NinjaTrader doit être ouvert avec la stratégie TelegramSignalStrategyV3 (ou l\'Add-On) active sur un graphique.'
+        ? 'Option A — Add-On (recommandé) : installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ → compilez (F5) → le moteur démarre automatiquement, aucun graphique requis.\n\nOption B — Stratégie V3 : ouvrez un graphique dans NinjaTrader → ajoutez TelegramSignalStrategyV3 → activez-la (État = Actif). ⚠️ N\'utilisez pas les deux en même temps.'
         : undefined,
     },
     {
       label: '5. Données comptes (Add-On)',
-      ok: null,   // null = optionnel (pas bloquant)
+      ok: null,   // null = optionnel (pas bloquant si V3 utilisée)
       optional: true,
       detail: 'nt8_accounts_status.json non reçu — Add-On C# non installé',
-      fix: 'Optionnel : installez TelegramTraderAddOn.cs dans NinjaTrader pour gérer plusieurs comptes. Sans l\'Add-On, la stratégie V3 suffit pour 1 compte.',
+      fix: 'L\'Add-On remplace complètement la stratégie V3 : multi-comptes, gestion connexions, démarrage automatique sans graphique. Installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ puis compilez (F5).',
     },
   ]
 
