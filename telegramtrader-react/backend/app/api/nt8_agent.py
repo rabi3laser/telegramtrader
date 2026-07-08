@@ -23,8 +23,13 @@ from app.api.deps import get_session_string
 router = APIRouter()
 
 # Emplacement de l'exécutable universel pré-compilé (voir scripts/build_agent_exe.ps1)
-AGENT_DIST_DIR = Path(__file__).resolve().parent.parent.parent / "agent_dist"
-AGENT_EXE_PATH = AGENT_DIST_DIR / "TelegramTraderAgent.exe"
+# Cherche d'abord dans agent/dist/ (PyInstaller local), puis dans agent_dist/ (production)
+_base = Path(__file__).resolve().parent.parent.parent
+AGENT_EXE_PATH = (
+    _base / "agent" / "dist" / "TelegramTraderAgent.exe"
+    if (_base / "agent" / "dist" / "TelegramTraderAgent.exe").exists()
+    else _base / "agent_dist" / "TelegramTraderAgent.exe"
+)
 
 # Emplacement du fichier NinjaScript (stratégie de trading + panneau de
 # calibration fusionnés) à installer dans NinjaTrader 8.
