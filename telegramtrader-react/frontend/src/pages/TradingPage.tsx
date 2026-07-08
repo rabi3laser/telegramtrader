@@ -182,15 +182,25 @@ export default function TradingPage() {
 
   // ── Données du compte actif ────────────────────────────────────────────
   const accountsStatus = ws.accounts?.accounts_status
-  const activeAccountName = accountsStatus?.selected_account ?? null
+  const wsConnected = ws.accounts?.connected ?? false
+
+  // Fallback : si l'Add-On n'est pas installé, on utilise les données de health.nt8
+  // (remontées par la stratégie V3 via nt8_current_price.json)
+  const nt8Health = ws.health?.nt8 ?? null
+
+  const activeAccountName = accountsStatus?.selected_account ?? nt8Health?.selected_account ?? null
   const activeAccount = accountsStatus?.accounts?.find(a => a.name === activeAccountName) ?? null
-  const balance = activeAccount?.balance ?? 0
-  const dailyPnl = activeAccount?.daily_pnl ?? null
+  const balance = activeAccount?.balance ?? nt8Health?.balance ?? 0
+  const dailyPnl = activeAccount?.daily_pnl ?? nt8Health?.daily_pnl ?? null
   const openPositions = activeAccount?.positions ?? []
 
   // ── Instruments depuis NT8 ─────────────────────────────────────────────
   const nt8Instruments: string[] = accountsStatus?.instruments ?? []
   const activeInstrument = accountsStatus?.active_instrument ?? null
+
+  // ── État de l'Add-On ──────────────────────────────────────────────────
+  const hasAddOnData = !!(accountsStatus?.accounts || accountsStatus?.connections)
+  const agentConnected = wsConnected || ws.wsConnected
 
   // ── Point value / tick size / pip size ────────────────────────────────
   const fallbackMarket = NT8_MARKETS_FALLBACK[signalForm.market]
@@ -507,10 +517,23 @@ export default function TradingPage() {
                 </div>
               )}
 
-              {!accountsStatus?.accounts && !accountsStatus?.connections && (
-                <p className="text-xs text-gray-400 flex items-center gap-1">
-                  <RefreshCw className="h-3 w-3" /> En attente des données NinjaTrader (Add-On requis)…
-                </p>
+      {!hasAddOnData && (
+                <div className="space-y-2">
+                  <p className="text-xs text-gray-500 flex items-center gap-1">
+                    <RefreshCw className="h-3 w-3 animate-spin" />
+                    {agentConnected
+                      ? "Agent connecté — en attente des données NinjaTrader…"
+                      : "En attente de la connexion de l'agent…"}
+                  </p>
+                  {agentConnected && (
+                    <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2 space-y-1">
+                      <p className="font-medium">Pour voir vos comptes ici :</p>
+                      <p>1. Installez <strong>TelegramTraderAddOn.cs</strong> dans NinjaTrader (AddOns\)</p>
+                      <p>2. Compilez (F5) et ouvrez le panneau "TelegramTrader Manager"</p>
+                      <p className="text-gray-400">Sans l'Add-On, seule la stratégie V3 (1 compte) est disponible.</p>
+                    </div>
+                  )}
+                </div>
               )}
             </div>
           )}
