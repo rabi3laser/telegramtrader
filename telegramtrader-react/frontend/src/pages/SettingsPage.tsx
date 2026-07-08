@@ -5,12 +5,13 @@ import {
   Info, Download, KeyRound, Wifi, WifiOff, Copy, Clock, ChevronDown, ChevronUp,
   FileCode, Unlink, Landmark, Plug, PlugZap, CheckCircle2, Activity, Server,
   Monitor, AlertTriangle, Package, ShieldOff, ShieldCheck, History, TrendingUp,
-  TrendingDown, X, AlertCircle,
+  TrendingDown, AlertCircle, Radio,
 } from 'lucide-react'
 
 import { nt8AgentService } from '../services/nt8AgentService'
 import type { ConnectorHealth, KillSwitchState, ActionLogEntry } from '../services/nt8AgentService'
 import { useAuthStore } from '../store/authStore'
+import { useConnectorWS } from '../hooks/useConnectorWS'
 
 
 // ── Composant Modal de confirmation générique ──────────────────────────────
@@ -103,7 +104,7 @@ export default function SettingsPage() {
   const closeConfirm = () =>
     setConfirmModal(prev => ({ ...prev, open: false }))
 
-  // ── QUERIES ────────────────────────────────────────────────────────────
+  // ── QUERY : statut de l'agent (polling léger, nécessaire pour savoir si lié) ──
   const { data: agentStatus, isLoading: agentLoading, isError: agentError } = useQuery({
     queryKey: ['nt8-agent', 'status'],
     queryFn: nt8AgentService.getStatus,
@@ -111,38 +112,19 @@ export default function SettingsPage() {
     retry: 2,
   })
 
-  const { data: healthData, isError: healthError } = useQuery<ConnectorHealth>({
-    queryKey: ['nt8-agent', 'health'],
-    queryFn: nt8AgentService.getConnectorHealth,
-    refetchInterval: 5000,
-    enabled: !!agentStatus?.linked,
-    retry: 1,
-  })
+  // ── WEBSOCKET temps réel (remplace les 4 useQuery de polling) ──────────
+  const ws = useConnectorWS(!!agentStatus?.linked)
 
-  const { data: accountsData, isLoading: accountsLoading, isError: accountsError } = useQuery({
-    queryKey: ['nt8-agent', 'accounts'],
-    queryFn: nt8AgentService.getAccountsStatus,
-    enabled: !!agentStatus?.linked,
-    refetchInterval: 5000,
-    retry: 2,
-  })
-  const accountsStatus = accountsData?.accounts_status
-
-  const { data: killSwitchData, isError: killSwitchError } = useQuery<KillSwitchState>({
-    queryKey: ['nt8-agent', 'kill-switch'],
-    queryFn: nt8AgentService.getKillSwitch,
-    enabled: !!agentStatus?.linked,
-    refetchInterval: 5000,
-    retry: 1,
-  })
-
-  const { data: actionLogData } = useQuery({
-    queryKey: ['nt8-agent', 'action-log'],
-    queryFn: () => nt8AgentService.getActionLog(15),
-    enabled: !!agentStatus?.linked,
-    refetchInterval: 10000,
-    retry: 1,
-  })
+  // Aliases pour compatibilité avec le JSX existant
+  const healthData: ConnectorHealth | null = ws.health
+  const healthError = !ws.wsConnected && ws.error !== null && ws.health === null
+  const accountsLoading = !ws.wsConnected && ws.accounts === null && ws.error === null
+  const accountsError = !ws.wsConnected && ws.error !== null && ws.accounts === null
+  const accountsStatus = ws.accounts?.accounts_status ?? null
+  const killSwitchData: KillSwitchState | null = ws.killSwitch
+  const actionLogData = ws.actionLog.length > 0
+    ? { entries: ws.actionLog, count: ws.actionLog.length }
+    : null
 
   // ── EFFETS ─────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -203,10 +185,9 @@ export default function SettingsPage() {
     mutationFn: (accountName: string) => nt8AgentService.selectAccount(accountName),
     onSuccess: (_data, accountName) => {
       toast.success(`Commande envoyée : sélection du compte ${accountName}`)
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
+      // Le WebSocket recevra automatiquement la mise à jour dans ~3s
     },
-    onError: () => toast.error('Erreur lors de l\'envoi de la commande de sélection de compte'),
+    onError: () => toast.error("Erreur lors de l'envoi de la commande de sélection de compte"),
   })
 
   const toggleConnectionMutation = useMutation({
@@ -214,10 +195,9 @@ export default function SettingsPage() {
       nt8AgentService.toggleConnection(name, connect),
     onSuccess: (_data, vars) => {
       toast.success(`Commande envoyée : ${vars.connect ? 'connexion' : 'déconnexion'} de ${vars.name}`)
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'accounts'] })
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
+      // Le WebSocket recevra automatiquement la mise à jour dans ~3s
     },
-    onError: () => toast.error('Erreur lors de l\'envoi de la commande de connexion'),
+    onError: () => toast.error("Erreur lors de l'envoi de la commande de connexion"),
   })
 
   const killSwitchMutation = useMutation({
@@ -229,10 +209,9 @@ export default function SettingsPage() {
       } else {
         toast.success('✅ Trading réactivé — les signaux seront à nouveau exécutés')
       }
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'kill-switch'] })
-      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
+      // Le WebSocket recevra automatiquement la mise à jour dans ~3s
     },
-    onError: () => toast.error('Erreur lors du changement d\'état du kill switch'),
+    onError: () => toast.error("Erreur lors du changement d'état du kill switch"),
   })
 
   // ── HANDLERS ───────────────────────────────────────────────────────────
@@ -288,7 +267,7 @@ export default function SettingsPage() {
     if (activate) {
       openConfirm({
         title: '⛔ Suspendre le trading ?',
-        message: 'Aucun nouveau signal Telegram ne sera exécuté sur NinjaTrader 8 tant que le trading est suspendu. L\'agent et NinjaTrader restent connectés. Réactivation manuelle obligatoire.',
+        message: "Aucun nouveau signal Telegram ne sera exécuté sur NinjaTrader 8 tant que le trading est suspendu. L'agent et NinjaTrader restent connectés. Réactivation manuelle obligatoire.",
         confirmLabel: 'Suspendre le trading',
         confirmClass: 'btn-danger',
         onConfirm: () => { closeConfirm(); killSwitchMutation.mutate({ active: true }) },
@@ -319,9 +298,29 @@ export default function SettingsPage() {
         onCancel={closeConfirm}
       />
 
-      <div>
-        <h1 className="text-2xl font-bold">Paramètres</h1>
-        <p className="text-gray-500 dark:text-gray-400">Configuration de l'application</p>
+      {/* En-tête avec indicateur WebSocket */}
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-bold">Paramètres</h1>
+          <p className="text-gray-500 dark:text-gray-400">Configuration de l'application</p>
+        </div>
+        {agentStatus?.linked && (
+          <div className={`flex items-center gap-1.5 text-xs px-2.5 py-1 rounded-full border ${
+            ws.wsConnected
+              ? 'border-green-300 bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+              : ws.reconnectAttempts > 0
+              ? 'border-yellow-300 bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+              : 'border-gray-300 bg-gray-50 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+          }`}>
+            <Radio className={`h-3 w-3 ${ws.wsConnected ? 'text-green-500' : 'text-yellow-500'}`} />
+            {ws.wsConnected
+              ? 'Temps réel'
+              : ws.reconnectAttempts > 0
+              ? `Reconnexion… (${ws.reconnectAttempts})`
+              : 'Connexion…'
+            }
+          </div>
+        )}
       </div>
 
       <div className="card space-y-3">
@@ -406,8 +405,8 @@ export default function SettingsPage() {
               {agentStatus.connected
                 ? `Agent connecté ✅${agentStatus.account_name ? ` — ${agentStatus.account_name}` : ''}`
                 : agentStatus.linked
-                ? 'Agent lié mais inactif (lancez TelegramTraderAgent.exe sur votre PC)'
-                : 'Aucun agent lié — générez un code d\'appairage ci-dessous'
+                ? "Agent lié mais inactif (lancez TelegramTraderAgent.exe sur votre PC)"
+                : "Aucun agent lié — générez un code d'appairage ci-dessous"
               }
             </span>
           </div>
@@ -481,8 +480,8 @@ export default function SettingsPage() {
                 <button
                   className="btn-danger flex items-center gap-2 text-xs"
                   onClick={() => openConfirm({
-                    title: 'Révoquer l\'agent ?',
-                    message: 'L\'agent sera déconnecté et son token invalidé. Vous devrez générer un nouveau code d\'appairage pour le reconnecter.',
+                    title: "Révoquer l'agent ?",
+                    message: "L'agent sera déconnecté et son token invalidé. Vous devrez générer un nouveau code d'appairage pour le reconnecter.",
                     confirmLabel: 'Révoquer',
                     onConfirm: () => { closeConfirm(); revokeAgentMutation.mutate() },
                   })}
@@ -595,7 +594,7 @@ export default function SettingsPage() {
                   <Package className="h-4 w-4 flex-shrink-0 mt-0.5" />
                   <p>
                     File d'attente backend : {healthData.queues.signal_queue} signal(s) et {healthData.queues.command_queue} commande(s) en attente.
-                    {!healthData.agent.connected && ' L\'agent semble déconnecté — les signaux seront exécutés dès sa reconnexion.'}
+                    {!healthData.agent.connected && " L'agent semble déconnecté — les signaux seront exécutés dès sa reconnexion."}
                   </p>
                 </div>
               )}
@@ -755,11 +754,11 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              {accountsStatus.timestamp && (
+              {(accountsStatus.timestamp || ws.lastUpdate) && (
                 <p className="text-xs text-gray-400 dark:text-gray-500 flex items-center gap-1">
                   <Clock className="h-3 w-3" />
-                  Dernière mise à jour : {new Date(accountsStatus.timestamp).toLocaleTimeString('fr-FR')}
-                  {' '}· Rafraîchissement automatique toutes les 5s
+                  Dernière mise à jour : {new Date(accountsStatus.timestamp ?? (ws.lastUpdate! * 1000)).toLocaleTimeString('fr-FR')}
+                  {' '}· {ws.wsConnected ? 'Temps réel via WebSocket' : 'Rafraîchissement automatique'}
                 </p>
               )}
             </div>
@@ -786,7 +785,7 @@ export default function SettingsPage() {
             ))}
           </div>
           <p className="text-xs text-gray-400 dark:text-gray-500">
-            Les 15 dernières actions · Rafraîchissement toutes les 10s
+            Les 15 dernières actions · {ws.wsConnected ? 'Mis à jour en temps réel via WebSocket' : 'Rafraîchissement automatique'}
           </p>
         </div>
       )}
