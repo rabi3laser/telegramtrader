@@ -5,7 +5,7 @@ import {
   Info, Download, KeyRound, Wifi, WifiOff, Copy, Clock, ChevronDown, ChevronUp,
   FileCode, Unlink, Landmark, Plug, PlugZap, CheckCircle2, Activity, Server,
   Monitor, AlertTriangle, Package, ShieldOff, ShieldCheck, History, TrendingUp,
-  TrendingDown, AlertCircle, Radio,
+  TrendingDown, AlertCircle, Radio, RefreshCw,
 } from 'lucide-react'
 
 import { nt8AgentService } from '../services/nt8AgentService'
@@ -112,6 +112,15 @@ export default function SettingsPage() {
     retry: 2,
   })
 
+  // ── QUERY : vérification re-liaison (seulement si agent non lié) ───────
+  const { data: relinkCheck } = useQuery({
+    queryKey: ['nt8-agent', 'relink-check'],
+    queryFn: nt8AgentService.checkRelinkAvailable,
+    enabled: agentStatus?.linked === false,
+    refetchInterval: 10000,
+    retry: 1,
+  })
+
   // ── WEBSOCKET temps réel (remplace les 4 useQuery de polling) ──────────
   const ws = useConnectorWS(!!agentStatus?.linked)
 
@@ -212,6 +221,20 @@ export default function SettingsPage() {
       // Le WebSocket recevra automatiquement la mise à jour dans ~3s
     },
     onError: () => toast.error("Erreur lors du changement d'état du kill switch"),
+  })
+
+  const relinkMutation = useMutation({
+    mutationFn: () => nt8AgentService.relinkAgent(),
+    onSuccess: (res) => {
+      if (res.already_linked) {
+        toast.success('Agent déjà lié à cette session ✅')
+      } else {
+        toast.success('Agent récupéré avec succès ! La liaison est restaurée ✅')
+      }
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'status'] })
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'relink-check'] })
+    },
+    onError: () => toast.error("Impossible de récupérer l'agent — il doit être actif (heartbeat < 5 min)"),
   })
 
   // ── HANDLERS ───────────────────────────────────────────────────────────
@@ -366,6 +389,43 @@ export default function SettingsPage() {
               disabled={killSwitchMutation.isPending}
             >
               {killSwitchMutation.isPending ? '...' : isKillSwitchActive ? 'Réactiver' : 'Suspendre'}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ── BANNIÈRE RE-LIAISON (session mismatch détecté) ────────────────── */}
+      {agentStatus?.linked === false && relinkCheck?.available && (
+        <div className="card border-2 border-orange-300 dark:border-orange-700 bg-orange-50 dark:bg-orange-900/10">
+          <div className="flex items-start gap-3">
+            <RefreshCw className="h-5 w-5 text-orange-600 dark:text-orange-400 flex-shrink-0 mt-0.5" />
+            <div className="flex-1 min-w-0">
+              <p className="font-semibold text-orange-800 dark:text-orange-300 text-sm">
+                Agent détecté — session désynchronisée
+              </p>
+              <p className="text-xs text-orange-700 dark:text-orange-400 mt-1">
+                Votre agent TelegramTraderAgent.exe est actif (heartbeat récent
+                {relinkCheck.last_heartbeat
+                  ? ` il y a ${Math.round((Date.now() / 1000) - relinkCheck.last_heartbeat)}s`
+                  : ''
+                }), mais il est lié à une ancienne session Telegram.
+                Cela arrive après une reconnexion ou un changement de navigateur.
+                Cliquez sur <strong>"Récupérer mon agent"</strong> pour restaurer la liaison en 1 clic
+                — aucun re-appairage nécessaire.
+              </p>
+              {relinkCheck.account_name && (
+                <p className="text-xs text-orange-600 dark:text-orange-500 mt-1">
+                  Compte associé : <span className="font-mono font-medium">{relinkCheck.account_name}</span>
+                </p>
+              )}
+            </div>
+            <button
+              className="btn-primary flex-shrink-0 flex items-center gap-2 text-sm"
+              onClick={() => relinkMutation.mutate()}
+              disabled={relinkMutation.isPending}
+            >
+              <RefreshCw className={`h-4 w-4 ${relinkMutation.isPending ? 'animate-spin' : ''}`} />
+              {relinkMutation.isPending ? 'Récupération…' : 'Récupérer mon agent'}
             </button>
           </div>
         </div>

@@ -214,6 +214,34 @@ async def pair_with_code(data: PairRequest):
     return result
 
 
+@router.get("/relink-check")
+async def relink_check(session_string: str = Depends(get_session_string)):
+    """
+    Vérifie si un agent actif (heartbeat < 5 min) existe sous une autre clé
+    de session (mismatch après reconnexion Telegram / changement de localStorage).
+    Retourne {"available": True} si une migration automatique est possible.
+    Utilisé par l'UI pour afficher le bouton "Récupérer mon agent".
+    """
+    return agent_service.check_relink_available(session_string)
+
+
+@router.post("/relink")
+async def relink_agent(session_string: str = Depends(get_session_string)):
+    """
+    Migre un agent actif (heartbeat récent) vers la session courante.
+    Résout le problème "Aucun agent NT8 lié" après une reconnexion Telegram
+    ou un changement de localStorage sans re-appairage.
+    Retourne {"success": True} si la migration a réussi.
+    """
+    result = agent_service.relink_agent(session_string)
+    if not result.get("success"):
+        raise HTTPException(
+            status_code=404,
+            detail=result.get("reason", "Aucun agent actif trouvé à migrer. L'agent doit avoir envoyé un heartbeat dans les 5 dernières minutes.")
+        )
+    return result
+
+
 
 @router.get("/poll")
 async def poll_signals(token: str = Query(...)):

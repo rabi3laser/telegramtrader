@@ -297,12 +297,99 @@ def _purge_expired_codes(codes: Dict[str, Any]) -> Dict[str, Any]:
     return {c: v for c, v in codes.items() if v.get("expires_at", 0) > now}
 
 
+def _find_orphan_agent(exclude_key: str) -> Optional[tuple]:
+    """
+    Cherche dans nt8_agents.json un agent actif (heartbeat récent < 5 min)
+    dont la clé de session ne correspond PAS à la session courante.
+    Retourne (old_key, config) ou None.
+    Utilisé pour détecter un mismatch de session (ex: reconnexion Telegram).
+    """
+    agents = _load_json(AGENTS_FILE)
+    now = time.time()
+    ORPHAN_HEARTBEAT_WINDOW = 300  # 5 minutes — agent considéré "récemment actif"
+    for k, cfg in agents.items():
+        if k == exclude_key:
+            continue
+        hb = cfg.get("last_heartbeat")
+        if hb and (now - hb) < ORPHAN_HEARTBEAT_WINDOW:
+            return (k, cfg)
+    return None
+
+
+def check_relink_available(session_string: str) -> Dict[str, Any]:
+    """
+    Vérifie si un agent actif existe sous une autre clé de session.
+    Retourne {"available": True, "account_name": "..."} si une migration
+    est possible, {"available": False} sinon.
+    Utilisé par l'UI pour afficher le bouton "Récupérer mon agent".
+    """
+    key = _user_key(session_string)
+    # Si l'agent est déjà lié à la session courante, pas besoin de migration
+    agents = _load_json(AGENTS_FILE)
+    if key in agents:
+        return {"available": False}
+    orphan = _find_orphan_agent(key)
+    if orphan:
+        _, cfg = orphan
+        return {
+            "available": True,
+            "account_name": cfg.get("account_name", ""),
+            "last_heartbeat": cfg.get("last_heartbeat"),
+        }
+    return {"available": False}
+
+
+def relink_agent(session_string: str) -> Dict[str, Any]:
+    """
+    Migre un agent actif (heartbeat récent) vers la nouvelle session courante.
+    Supprime l'ancienne entrée et crée une nouvelle entrée avec la même clé
+    de token, liée à la session actuelle.
+    Retourne {"success": True, "token": "..."} ou {"success": False}.
+    """
+    with _file_lock:
+        agents = _load_json(AGENTS_FILE)
+        key = _user_key(session_string)
+
+        # Si déjà lié, rien à faire
+        if key in agents:
+            return {"success": True, "already_linked": True, "token": agents[key]["token"]}
+
+        # Chercher un agent orphelin actif
+        now = time.time()
+        ORPHAN_HEARTBEAT_WINDOW = 300
+        orphan_key = None
+        orphan_cfg = None
+        for k, cfg in agents.items():
+            hb = cfg.get("last_heartbeat")
+            if hb and (now - hb) < ORPHAN_HEARTBEAT_WINDOW:
+                orphan_key = k
+                orphan_cfg = cfg
+                break
+
+        if not orphan_key:
+            return {"success": False, "reason": "Aucun agent actif trouvé à migrer"}
+
+        # Migrer : supprimer l'ancienne clé, créer la nouvelle
+        agents.pop(orphan_key)
+        agents[key] = orphan_cfg
+        _save_json(AGENTS_FILE, agents)
+
+        # Migrer aussi les files de commandes et signaux (les queues sont indexées
+        # par token, pas par clé de session — elles restent valides telles quelles)
+
+    return {"success": True, "already_linked": False, "token": orphan_cfg["token"]}
+
+
 def generate_pairing_code(session_string: str, account_name: Optional[str] = None) -> Dict[str, Any]:
     """
     Crée (ou réutilise) le token de l'utilisateur, puis génère un code
     d'appairage temporaire (10 minutes) qui pointe vers ce token. Ce code
     est ce que l'utilisateur communique à l'agent local — jamais le token
     brut.
+
+    Si aucun agent n'est lié à la session courante mais qu'un agent actif
+    existe sous une autre clé (mismatch de session), il est automatiquement
+    migré vers la session courante avant de générer le code.
     """
     # Verrou global : cette fonction touche à la fois agents.json ET pairing.json,
     # et appelle generate_agent_token() qui acquiert aussi le verrou — on évite
@@ -314,21 +401,38 @@ def generate_pairing_code(session_string: str, account_name: Optional[str] = Non
         config = agents.get(key)
 
         if not config:
-            # Créer un nouveau token directement (sans appeler generate_agent_token
-            # pour éviter une double acquisition du verrou)
-            token = secrets.token_urlsafe(32)
-            config = {
-                "token": token,
-                "account_name": account_name or "",
-                "created_at": time.time(),
-                "last_heartbeat": None,
-                "last_price": None,
-            }
-            agents[key] = config
-            _save_json(AGENTS_FILE, agents)
-            queues = _load_json(QUEUES_FILE)
-            queues[token] = []
-            _save_json(QUEUES_FILE, queues)
+            # Vérifier s'il existe un agent orphelin actif à migrer
+            now = time.time()
+            ORPHAN_HEARTBEAT_WINDOW = 300
+            orphan_key = None
+            for k, cfg in agents.items():
+                hb = cfg.get("last_heartbeat")
+                if hb and (now - hb) < ORPHAN_HEARTBEAT_WINDOW:
+                    orphan_key = k
+                    config = cfg
+                    break
+
+            if orphan_key:
+                # Migration automatique : re-lier l'agent orphelin à la session courante
+                agents.pop(orphan_key)
+                agents[key] = config
+                _save_json(AGENTS_FILE, agents)
+            else:
+                # Créer un nouveau token directement (sans appeler generate_agent_token
+                # pour éviter une double acquisition du verrou)
+                token = secrets.token_urlsafe(32)
+                config = {
+                    "token": token,
+                    "account_name": account_name or "",
+                    "created_at": time.time(),
+                    "last_heartbeat": None,
+                    "last_price": None,
+                }
+                agents[key] = config
+                _save_json(AGENTS_FILE, agents)
+                queues = _load_json(QUEUES_FILE)
+                queues[token] = []
+                _save_json(QUEUES_FILE, queues)
         elif account_name:
             agents[key]["account_name"] = account_name
             config = agents[key]

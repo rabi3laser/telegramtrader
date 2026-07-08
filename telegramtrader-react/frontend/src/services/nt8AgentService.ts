@@ -282,6 +282,22 @@ export const nt8AgentService = {
     const response = await api.get(`/nt8-agent/action-log?limit=${limit}`)
     return response.data
   },
+
+  // ── Re-liaison de session (mismatch après reconnexion Telegram) ────────
+
+  // Vérifie si un agent actif existe sous une autre clé de session
+  // (heartbeat < 5 min) — retourne {"available": true} si migration possible
+  async checkRelinkAvailable(): Promise<{ available: boolean; account_name?: string; last_heartbeat?: number }> {
+    const response = await api.get('/nt8-agent/relink-check')
+    return response.data
+  },
+
+  // Migre l'agent actif vers la session courante (résout "Aucun agent NT8 lié"
+  // après reconnexion Telegram ou changement de localStorage)
+  async relinkAgent(): Promise<{ success: boolean; already_linked?: boolean; token?: string }> {
+    const response = await api.post('/nt8-agent/relink', {})
+    return response.data
+  },
 }
 
 
