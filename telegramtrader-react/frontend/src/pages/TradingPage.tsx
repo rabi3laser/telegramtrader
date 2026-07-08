@@ -148,10 +148,11 @@ function LevelVisualizer({
 }
 
 // ── Panneau de diagnostic NT8 ─────────────────────────────────────────────
-function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
+function NT8DiagPanel({ ws, agentConnected, agentLinked, hasAddOnData }: {
   ws: ReturnType<typeof useConnectorWS>
   agentConnected: boolean
   agentLinked: boolean
+  hasAddOnData: boolean
 }) {
   const agentHealth = ws.health?.agent
   const nt8Health = ws.health?.nt8
@@ -190,15 +191,20 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
       ok: nt8Health?.active ?? null,
       detail: nt8Health?.message ?? (agentConnected ? 'En attente de données NT8…' : 'Agent non connecté'),
       fix: agentConnected && !nt8Health?.active
-        ? 'Option A — Add-On (recommandé) : installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ → compilez (F5) → le moteur démarre automatiquement, aucun graphique requis.\n\nOption B — Stratégie V3 : ouvrez un graphique dans NinjaTrader → ajoutez TelegramSignalStrategyV3 → activez-la (État = Actif). ⚠️ N\'utilisez pas les deux en même temps.'
+        ? 'NinjaTrader doit être ouvert avec l\'Add-On actif. Vérifiez que NinjaTrader 8 est bien ouvert — le moteur TelegramTrader démarre automatiquement dès l\'ouverture de NinjaTrader (aucun graphique requis).'
         : undefined,
     },
     {
-      label: '5. Données comptes (Add-On)',
-      ok: null,   // null = optionnel (pas bloquant si V3 utilisée)
-      optional: true,
-      detail: 'nt8_accounts_status.json non reçu — Add-On C# non installé',
-      fix: 'L\'Add-On remplace complètement la stratégie V3 : multi-comptes, gestion connexions, démarrage automatique sans graphique. Installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ puis compilez (F5).',
+      label: '5. Add-On — Données comptes',
+      ok: hasAddOnData ? true : (nt8Health?.active ? false : null),
+      detail: hasAddOnData
+        ? 'Données reçues ✅'
+        : (nt8Health?.active
+            ? 'NT8 actif mais nt8_accounts_status.json non reçu — Add-On non installé ou non compilé'
+            : 'En attente de NinjaTrader…'),
+      fix: !hasAddOnData && nt8Health?.active
+        ? 'Installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ → compilez (F5) dans NinjaTrader. Le panneau "TelegramTrader Manager" apparaîtra dans le menu "New".'
+        : undefined,
     },
   ]
 
@@ -647,7 +653,7 @@ export default function TradingPage() {
                 </div>
               )}
 
-      {!hasAddOnData && <NT8DiagPanel ws={ws} agentConnected={agentConnected} agentLinked={!!agentStatus?.linked} />}
+      {!hasAddOnData && <NT8DiagPanel ws={ws} agentConnected={agentConnected} agentLinked={!!agentStatus?.linked} hasAddOnData={hasAddOnData} />}
             </div>
           )}
         </div>
