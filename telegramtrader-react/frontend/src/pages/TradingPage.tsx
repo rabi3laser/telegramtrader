@@ -435,11 +435,20 @@ export default function TradingPage() {
     if (!signalForm.stop_loss || sl <= 0) {
       toast.error('⛔ Stop Loss obligatoire'); return
     }
+    if (!signalForm.target_price || tp <= 0) {
+      toast.error('⛔ TP1 obligatoire — NinjaTrader requiert un Take Profit pour placer le bracket SL/TP'); return
+    }
     if (signalForm.type === 'BUY' && entry > 0 && sl >= entry) {
       toast.error('⛔ SL invalide : pour un BUY, le SL doit être < entrée'); return
     }
     if (signalForm.type === 'SELL' && entry > 0 && sl <= entry) {
       toast.error('⛔ SL invalide : pour un SELL, le SL doit être > entrée'); return
+    }
+    if (signalForm.type === 'BUY' && entry > 0 && tp > 0 && tp <= entry) {
+      toast.error('⛔ TP invalide : pour un BUY, le TP doit être > entrée'); return
+    }
+    if (signalForm.type === 'SELL' && entry > 0 && tp > 0 && tp >= entry) {
+      toast.error('⛔ TP invalide : pour un SELL, le TP doit être < entrée'); return
     }
     setShowConfirm(true)
   }
@@ -742,8 +751,13 @@ export default function TradingPage() {
                 onChange={(e) => setSignalForm({ ...signalForm, stop_loss: e.target.value })} />
             </div>
             <div>
-              <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">TP1 <span className="text-gray-400">(opt.)</span></label>
-              <input type="number" step="0.01" className="input text-sm" value={signalForm.target_price}
+              <label className="block text-xs font-medium mb-1 text-gray-600 dark:text-gray-400">
+                TP1 <span className="text-red-500">*</span>
+              </label>
+              <input type="number" step="0.01"
+                className={`input text-sm ${!signalForm.target_price ? 'border-orange-400 dark:border-orange-600' : ''}`}
+                placeholder="Requis"
+                value={signalForm.target_price}
                 onChange={(e) => setSignalForm({ ...signalForm, target_price: e.target.value })} />
             </div>
             <div>

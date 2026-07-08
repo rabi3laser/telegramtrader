@@ -226,7 +226,7 @@ def write_signal_file(signal: dict) -> None:
 
 def _check_signal_processed() -> None:
     """Attend quelques secondes après l'écriture d'un signal, puis lit
-    nt8_last_signal_status.json (écrit par la stratégie NinjaScript) pour
+    nt8_last_signal_status.json (écrit par l'Add-On NinjaScript) pour
     savoir si le signal a été EXÉCUTÉ ou REJETÉ (et pourquoi). Ce mécanisme
     permet de diagnostiquer, DIRECTEMENT dans les logs de l'agent, le cas
     signalé par l'utilisateur : "j'ai exécuté... mais sur ninja trader rien"."""
@@ -234,15 +234,30 @@ def _check_signal_processed() -> None:
     status = read_status_file()
     if status is None:
         log("⚠️  Aucun retour de NinjaTrader après l'envoi du signal (6s). "
-            "Vérifiez que la stratégie TelegramSignalStrategyV3 est bien "
-            "ACTIVE sur un graphique NinjaTrader (Stratégies → État = Actif).")
+            "Vérifiez que NinjaTrader 8 est bien ouvert et que l'Add-On "
+            "TelegramTraderAddOn est compilé (Tools → Edit NinjaScript → F5). "
+            "Le moteur démarre automatiquement à l'ouverture de NinjaTrader "
+            "(aucun graphique requis).")
         return
     if status.get("status") == "executed":
         log(f"🏆 Confirmé par NinjaTrader : ordre exécuté ({status.get('extra', '')})")
     elif status.get("status") == "rejected":
-        log(f"❌ Signal REJETÉ par NinjaTrader — raison : {status.get('reason', 'inconnue')}. "
-            "Vérifiez le prix d'entrée / SL / TP saisis, ou consultez la fenêtre "
-            "'NinjaScript Output' dans NinjaTrader pour plus de détails.")
+        reason = status.get('reason', 'inconnue')
+        hint = ""
+        if reason == "tp_manquant":
+            hint = " → Le TP (Take Profit) est obligatoire. Saisissez un TP > 0 dans le formulaire."
+        elif reason == "sl_manquant":
+            hint = " → Le SL (Stop Loss) est obligatoire. Saisissez un SL > 0 dans le formulaire."
+        elif reason == "entry_manquant":
+            hint = " → Le prix d'entrée est 0 et NinjaTrader n'a pas pu lire le prix du marché. Vérifiez l'instrument configuré dans l'Add-On."
+        elif reason == "signal_perime":
+            hint = " → Le signal a plus de 5 minutes. Envoyez un nouveau signal."
+        elif "tp_buy_invalide" in reason or "tp_sell_invalide" in reason:
+            hint = " → Le TP est du mauvais côté de l'entrée (BUY: TP > entrée, SELL: TP < entrée)."
+        elif "sl_buy_invalide" in reason or "sl_sell_invalide" in reason:
+            hint = " → Le SL est du mauvais côté de l'entrée (BUY: SL < entrée, SELL: SL > entrée)."
+        log(f"❌ Signal REJETÉ par NinjaTrader — raison : {reason}.{hint} "
+            "Consultez aussi la fenêtre 'NinjaScript Output' dans NinjaTrader pour plus de détails.")
 
 
 def read_status_file():
