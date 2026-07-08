@@ -763,7 +763,58 @@ def run_tray_icon():
 # POINT D'ENTRÉE
 # ═══════════════════════════════════════════════════════════════════════
 
+def _ensure_single_instance() -> bool:
+    """Garantit qu'une seule instance de l'agent tourne à la fois.
+    Utilise un mutex Windows nommé pour détecter une instance existante.
+    Retourne True si cette instance est la première (peut continuer),
+    False si une instance tourne déjà (doit s'arrêter après notification).
+    """
+    if sys.platform != "win32":
+        return True  # Sur non-Windows, on laisse passer (pas de mutex)
+    try:
+        import ctypes
+        import ctypes.wintypes
+        # Créer un mutex nommé global — si ERROR_ALREADY_EXISTS (183),
+        # une instance tourne déjà.
+        kernel32 = ctypes.windll.kernel32
+        mutex = kernel32.CreateMutexW(None, False, f"Global\\{APP_NAME}_SingleInstance")
+        last_error = kernel32.GetLastError()
+        if last_error == 183:  # ERROR_ALREADY_EXISTS
+            # Une instance tourne déjà — afficher un message et quitter
+            try:
+                import tkinter as tk
+                from tkinter import messagebox
+                root = tk.Tk()
+                root.withdraw()
+                root.attributes("-topmost", True)
+                messagebox.showinfo(
+                    "TelegramTrader Agent",
+                    "✅ TelegramTrader Agent est déjà en cours d'exécution.\n\n"
+                    "Cherchez l'icône 🟢 dans la barre des tâches (zone de notification, "
+                    "en bas à droite de l'écran).\n\n"
+                    "Clic droit sur l'icône → 'Voir le statut détaillé' pour plus d'informations.",
+                )
+                root.destroy()
+            except Exception:
+                pass
+            return False
+        # Stocker le handle pour éviter que le mutex soit libéré par le GC
+        _ensure_single_instance._mutex_handle = mutex
+        return True
+    except Exception as e:
+        # En cas d'erreur inattendue, on laisse l'agent démarrer quand même
+        log(f"⚠️  Impossible de vérifier l'instance unique : {e}")
+        return True
+
+
 def main():
+    # ── Vérification instance unique AVANT tout le reste ────────────────
+    # Si une instance tourne déjà, on affiche un message et on quitte.
+    # Cela évite le crash silencieux (--noconsole) quand l'utilisateur
+    # double-clique sur l'exe alors que l'agent tourne déjà en systray.
+    if not _ensure_single_instance():
+        sys.exit(0)
+
     log("═" * 60)
     log(f"Démarrage de {APP_NAME} — Serveur : {API_BASE_URL}")
 
