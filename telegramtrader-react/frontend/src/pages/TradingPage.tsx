@@ -158,7 +158,7 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
   const hbAge = agentHealth?.last_heartbeat_age_sec
 
   // Étapes de la chaîne de connexion
-  const steps: { label: string; ok: boolean | null; detail: string; fix?: string }[] = [
+  const steps: { label: string; ok: boolean | null; detail: string; fix?: string; optional?: boolean }[] = [
     {
       label: '1. Backend API',
       ok: ws.health?.backend?.ok ?? null,
@@ -195,14 +195,17 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
     },
     {
       label: '5. Données comptes (Add-On)',
-      ok: false,
-      detail: 'nt8_accounts_status.json non reçu',
-      fix: 'Installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ puis compilez (F5) et ouvrez "TelegramTrader Manager". Sans l\'Add-On, seule la stratégie V3 (1 compte) est disponible.',
+      ok: null,   // null = optionnel (pas bloquant)
+      optional: true,
+      detail: 'nt8_accounts_status.json non reçu — Add-On C# non installé',
+      fix: 'Optionnel : installez TelegramTraderAddOn.cs dans NinjaTrader pour gérer plusieurs comptes. Sans l\'Add-On, la stratégie V3 suffit pour 1 compte.',
     },
   ]
 
-  // Trouver la première étape en erreur
-  const firstError = steps.findIndex(s => s.ok === false)
+  // Trouver la première étape BLOQUANTE en erreur (ok === false, non optionnelle)
+  const firstError = steps.findIndex(s => s.ok === false && !(s as any).optional)
+  // Étape 4 bloquante si NT8 non actif
+  const nt8Blocking = !nt8Health?.active && agentConnected
 
   return (
     <div className="space-y-3">
@@ -215,7 +218,8 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
 
       <div className="space-y-1.5">
         {steps.map((step, i) => {
-          const isBlocking = i === firstError
+          const isBlocking = i === firstError || (i === 3 && nt8Blocking && step.ok === false)
+          const isOptional = !!(step as any).optional
           return (
             <div key={step.label}
               className={`rounded-lg px-3 py-2 text-xs border ${
@@ -225,22 +229,35 @@ function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
                     ? isBlocking
                       ? 'border-red-400 bg-red-50 dark:bg-red-900/20'
                       : 'border-orange-300 bg-orange-50 dark:bg-orange-900/20'
-                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+                    : isOptional
+                      ? 'border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-900/10'
+                      : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
               }`}>
               <div className="flex items-start gap-2">
                 <span className="flex-shrink-0 mt-0.5">
-                  {step.ok === true ? '✅' : step.ok === false ? (isBlocking ? '❌' : '⚠️') : '⏳'}
+                  {step.ok === true ? '✅'
+                    : step.ok === false ? (isBlocking ? '❌' : '⚠️')
+                    : isOptional ? '💡'
+                    : '⏳'}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className={`font-semibold ${
                     step.ok === true ? 'text-green-700 dark:text-green-400'
                     : step.ok === false ? (isBlocking ? 'text-red-700 dark:text-red-400' : 'text-orange-700 dark:text-orange-400')
+                    : isOptional ? 'text-blue-600 dark:text-blue-400'
                     : 'text-gray-500'
-                  }`}>{step.label}</p>
+                  }`}>
+                    {step.label}
+                    {isOptional && <span className="ml-1 font-normal text-blue-400 dark:text-blue-500">(optionnel)</span>}
+                  </p>
                   <p className="text-gray-500 dark:text-gray-400 mt-0.5">{step.detail}</p>
-                  {step.fix && isBlocking && (
-                    <p className="mt-1 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 rounded px-2 py-1 border border-amber-200 dark:border-amber-700">
-                      💡 {step.fix}
+                  {step.fix && (isBlocking || isOptional) && (
+                    <p className={`mt-1 rounded px-2 py-1 border ${
+                      isOptional
+                        ? 'text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-900/30 border-blue-200 dark:border-blue-700'
+                        : 'text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 border-amber-200 dark:border-amber-700'
+                    }`}>
+                      {isOptional ? 'ℹ️' : '💡'} {step.fix}
                     </p>
                   )}
                 </div>
