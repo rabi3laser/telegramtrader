@@ -383,8 +383,8 @@ export default function SettingsPage() {
             Windows ci-dessous, <strong>2)</strong> double-cliquez dessus (aucune installation
             Python requise, une icône apparaît dans la zone de notification), <strong>3)</strong>{' '}
             saisissez le code d'appairage généré ici. L'agent se connecte automatiquement,
-            démarre avec Windows et exécute vos signaux sur NinjaTrader 8 (stratégie{' '}
-            <strong>TelegramSignalStrategyV3</strong> requise).
+            démarre avec Windows et exécute vos signaux sur NinjaTrader 8 (l'<strong>Add-On TelegramTrader</strong>{' '}
+            doit être installé dans NinjaTrader — voir ci-dessous).
           </p>
         </div>
 
@@ -424,11 +424,8 @@ export default function SettingsPage() {
           <button className="btn-primary flex items-center gap-2 text-sm" onClick={handleDownloadExe}>
             <Download className="h-4 w-4" /> Télécharger TelegramTraderAgent.exe
           </button>
-          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadAddOn}>
-            <FileCode className="h-4 w-4" /> Add-On NinjaTrader (recommandé)
-          </button>
-          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadStrategy}>
-            <FileCode className="h-4 w-4" /> Stratégie V3 (1 compte)
+          <button className="btn-primary flex items-center gap-2 text-sm" onClick={handleDownloadAddOn}>
+            <FileCode className="h-4 w-4" /> Add-On NinjaTrader ✅
           </button>
         </div>
 
@@ -436,11 +433,10 @@ export default function SettingsPage() {
         <div className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
           <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
           <div>
-            <p><strong>Add-On (recommandé)</strong> : copiez <code>TelegramTraderAddOn.cs</code> dans{' '}
-              <code>Documents\NinjaTrader 8\bin\Custom\AddOns\</code> puis compilez (F5).
-              Démarre automatiquement avec NinjaTrader, supporte plusieurs comptes.</p>
-            <p className="mt-1"><strong>Stratégie V3</strong> : copiez dans{' '}
-              <code>...\Strategies\</code> et appliquez-la sur un graphique. Plus simple mais limitée à 1 compte.</p>
+            <p><strong>Installation de l'Add-On</strong> : copiez <code>TelegramTraderAddOn.cs</code> dans{' '}
+              <code>Documents\NinjaTrader 8\bin\Custom\AddOns\</code> puis compilez (F5) dans NinjaTrader.
+              Le panneau <strong>"TelegramTrader Manager"</strong> apparaîtra dans le menu <strong>New</strong>.
+              Démarre automatiquement à chaque ouverture de NinjaTrader — aucun graphique requis, multi-comptes.</p>
           </div>
         </div>
 
