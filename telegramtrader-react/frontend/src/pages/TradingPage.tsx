@@ -147,6 +147,119 @@ function LevelVisualizer({
   )
 }
 
+// ── Panneau de diagnostic NT8 ─────────────────────────────────────────────
+function NT8DiagPanel({ ws, agentConnected, agentLinked }: {
+  ws: ReturnType<typeof useConnectorWS>
+  agentConnected: boolean
+  agentLinked: boolean
+}) {
+  const agentHealth = ws.health?.agent
+  const nt8Health = ws.health?.nt8
+  const hbAge = agentHealth?.last_heartbeat_age_sec
+
+  // Étapes de la chaîne de connexion
+  const steps: { label: string; ok: boolean | null; detail: string; fix?: string }[] = [
+    {
+      label: '1. Backend API',
+      ok: ws.health?.backend?.ok ?? null,
+      detail: ws.health?.backend?.message ?? (ws.wsConnected ? 'Opérationnel' : 'Non joignable'),
+      fix: !ws.wsConnected ? 'Vérifiez que le backend FastAPI tourne (docker-compose up ou python main.py)' : undefined,
+    },
+    {
+      label: '2. WebSocket',
+      ok: ws.wsConnected,
+      detail: ws.wsConnected ? 'Connecté' : (ws.error ?? 'Déconnecté'),
+      fix: !ws.wsConnected ? `Reconnexion en cours… (tentative #${ws.reconnectAttempts})` : undefined,
+    },
+    {
+      label: '3. Agent local',
+      ok: agentLinked ? (agentConnected ? true : false) : null,
+      detail: agentLinked
+        ? (agentConnected
+            ? `Connecté${hbAge != null ? ` (heartbeat il y a ${hbAge}s)` : ''}`
+            : `Lié mais inactif${hbAge != null ? ` (dernier heartbeat il y a ${hbAge}s)` : ' (aucun heartbeat)'}`)
+        : 'Non lié',
+      fix: !agentLinked
+        ? 'Allez dans Paramètres → générez un code d\'appairage → lancez TelegramTraderAgent.exe'
+        : (!agentConnected
+            ? 'L\'agent est lié mais ne répond plus. Vérifiez que TelegramTraderAgent.exe tourne sur votre PC.'
+            : undefined),
+    },
+    {
+      label: '4. NinjaTrader 8',
+      ok: nt8Health?.active ?? null,
+      detail: nt8Health?.message ?? (agentConnected ? 'En attente de données NT8…' : 'Agent non connecté'),
+      fix: agentConnected && !nt8Health?.active
+        ? 'NinjaTrader doit être ouvert avec la stratégie TelegramSignalStrategyV3 (ou l\'Add-On) active sur un graphique.'
+        : undefined,
+    },
+    {
+      label: '5. Données comptes (Add-On)',
+      ok: false,
+      detail: 'nt8_accounts_status.json non reçu',
+      fix: 'Installez TelegramTraderAddOn.cs dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ puis compilez (F5) et ouvrez "TelegramTrader Manager". Sans l\'Add-On, seule la stratégie V3 (1 compte) est disponible.',
+    },
+  ]
+
+  // Trouver la première étape en erreur
+  const firstError = steps.findIndex(s => s.ok === false)
+
+  return (
+    <div className="space-y-3">
+      <div className="flex items-center gap-2">
+        <AlertCircle className="h-4 w-4 text-amber-500 flex-shrink-0" />
+        <p className="text-xs font-semibold text-amber-700 dark:text-amber-400">
+          Diagnostic de connexion NinjaTrader
+        </p>
+      </div>
+
+      <div className="space-y-1.5">
+        {steps.map((step, i) => {
+          const isBlocking = i === firstError
+          return (
+            <div key={step.label}
+              className={`rounded-lg px-3 py-2 text-xs border ${
+                step.ok === true
+                  ? 'border-green-300 bg-green-50 dark:bg-green-900/20'
+                  : step.ok === false
+                    ? isBlocking
+                      ? 'border-red-400 bg-red-50 dark:bg-red-900/20'
+                      : 'border-orange-300 bg-orange-50 dark:bg-orange-900/20'
+                    : 'border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800'
+              }`}>
+              <div className="flex items-start gap-2">
+                <span className="flex-shrink-0 mt-0.5">
+                  {step.ok === true ? '✅' : step.ok === false ? (isBlocking ? '❌' : '⚠️') : '⏳'}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className={`font-semibold ${
+                    step.ok === true ? 'text-green-700 dark:text-green-400'
+                    : step.ok === false ? (isBlocking ? 'text-red-700 dark:text-red-400' : 'text-orange-700 dark:text-orange-400')
+                    : 'text-gray-500'
+                  }`}>{step.label}</p>
+                  <p className="text-gray-500 dark:text-gray-400 mt-0.5">{step.detail}</p>
+                  {step.fix && isBlocking && (
+                    <p className="mt-1 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/30 rounded px-2 py-1 border border-amber-200 dark:border-amber-700">
+                      💡 {step.fix}
+                    </p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )
+        })}
+      </div>
+
+      {ws.error && (
+        <div className="text-xs text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg px-3 py-2 border border-red-300">
+          <p className="font-semibold">Erreur WebSocket :</p>
+          <p className="font-mono mt-0.5">{ws.error}</p>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function TradingPage() {
   const queryClient = useQueryClient()
 
@@ -517,24 +630,7 @@ export default function TradingPage() {
                 </div>
               )}
 
-      {!hasAddOnData && (
-                <div className="space-y-2">
-                  <p className="text-xs text-gray-500 flex items-center gap-1">
-                    <RefreshCw className="h-3 w-3 animate-spin" />
-                    {agentConnected
-                      ? "Agent connecté — en attente des données NinjaTrader…"
-                      : "En attente de la connexion de l'agent…"}
-                  </p>
-                  {agentConnected && (
-                    <div className="text-xs text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 rounded-lg p-2 space-y-1">
-                      <p className="font-medium">Pour voir vos comptes ici :</p>
-                      <p>1. Installez <strong>TelegramTraderAddOn.cs</strong> dans NinjaTrader (AddOns\)</p>
-                      <p>2. Compilez (F5) et ouvrez le panneau "TelegramTrader Manager"</p>
-                      <p className="text-gray-400">Sans l'Add-On, seule la stratégie V3 (1 compte) est disponible.</p>
-                    </div>
-                  )}
-                </div>
-              )}
+      {!hasAddOnData && <NT8DiagPanel ws={ws} agentConnected={agentConnected} agentLinked={!!agentStatus?.linked} />}
             </div>
           )}
         </div>
