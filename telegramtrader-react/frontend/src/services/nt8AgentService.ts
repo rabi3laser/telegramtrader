@@ -16,15 +16,36 @@ export interface PairingCodeResponse {
   ttl_seconds: number
 }
 
+export interface NT8Position {
+  instrument: string
+  direction: string
+  quantity: number
+  avg_price: number
+  unrealized_pnl: number
+  tick_size: number
+  point_value: number
+}
+
 export interface NT8Account {
   name: string
   balance: number
+  buying_power?: number
+  margin?: number
+  daily_pnl?: number
+  positions?: NT8Position[]
 }
 
 export interface NT8Connection {
   name: string
   status: string
   connected: boolean
+}
+
+export interface NT8ActiveInstrument {
+  name: string
+  tick_size: number
+  point_value: number
+  last_price: number
 }
 
 export interface AccountsStatus {
@@ -34,6 +55,8 @@ export interface AccountsStatus {
   connections?: NT8Connection[]
   /** Liste des instruments disponibles sur le compte actif (remontée par l'agent via heartbeat) */
   instruments?: string[]
+  /** Infos de l'instrument actif (tick size, point value, dernier prix) pour le calcul MM */
+  active_instrument?: NT8ActiveInstrument
 }
 
 export interface AccountsStatusResponse {

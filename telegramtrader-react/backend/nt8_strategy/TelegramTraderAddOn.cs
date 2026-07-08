@@ -771,18 +771,53 @@ namespace NinjaTrader.NinjaScript.AddOns
         {
             try
             {
+                // ── Comptes disponibles (nom + solde + PnL jour + marge) ──────────
                 JArray accountsArr = new JArray();
                 foreach (Account a in GetAvailableAccounts())
                 {
-                    double bal = 0;
-                    try { bal = a.Get(AccountItem.CashValue, Currency.UsDollar); } catch { }
+                    double bal = 0, margin = 0, pnlDay = 0, buyingPower = 0;
+                    try { bal         = a.Get(AccountItem.CashValue,          Currency.UsDollar); } catch { }
+                    try { margin      = a.Get(AccountItem.InitialMargin,       Currency.UsDollar); } catch { }
+                    try { buyingPower = a.Get(AccountItem.BuyingPower,         Currency.UsDollar); } catch { }
+                    // PnL journalier = solde actuel - solde de début de journée
+                    pnlDay = (a.Name == Config.SelectedAccountName) ? (bal - dailyStartBalance) : 0;
+
+                    // Positions ouvertes sur ce compte
+                    JArray posArr = new JArray();
+                    try
+                    {
+                        foreach (var pos in a.Positions)
+                        {
+                            if (pos.MarketPosition == MarketPosition.Flat) continue;
+                            double tickSz = 0, ptVal = 0;
+                            try { tickSz = pos.Instrument.MasterInstrument.TickSize;  } catch { }
+                            try { ptVal  = pos.Instrument.MasterInstrument.PointValue; } catch { }
+                            posArr.Add(new JObject
+                            {
+                                ["instrument"]      = pos.Instrument.FullName,
+                                ["direction"]       = pos.MarketPosition.ToString(),
+                                ["quantity"]        = pos.Quantity,
+                                ["avg_price"]       = pos.AveragePrice,
+                                ["unrealized_pnl"]  = pos.GetUnrealizedProfitLoss(PerformanceUnit.Currency, 0),
+                                ["tick_size"]       = tickSz,
+                                ["point_value"]     = ptVal
+                            });
+                        }
+                    }
+                    catch { }
+
                     accountsArr.Add(new JObject
                     {
-                        ["name"] = a.Name,
-                        ["balance"] = bal
+                        ["name"]         = a.Name,
+                        ["balance"]      = bal,
+                        ["buying_power"] = buyingPower,
+                        ["margin"]       = margin,
+                        ["daily_pnl"]    = pnlDay,
+                        ["positions"]    = posArr
                     });
                 }
 
+                // ── Connexions ────────────────────────────────────────────────────
                 JArray connectionsArr = new JArray();
                 foreach (Connection c in GetConnections())
                 {
@@ -792,18 +827,70 @@ namespace NinjaTrader.NinjaScript.AddOns
                                        && statusStr.IndexOf("Disconnected", StringComparison.OrdinalIgnoreCase) < 0;
                     connectionsArr.Add(new JObject
                     {
-                        ["name"] = GetConnectionDisplayName(c),
-                        ["status"] = statusStr,
+                        ["name"]      = GetConnectionDisplayName(c),
+                        ["status"]    = statusStr,
                         ["connected"] = isConnected
                     });
                 }
 
+                // ── Instruments disponibles (depuis les positions + instrument par défaut) ──
+                // NinjaTrader ne fournit pas d'API publique pour lister TOUS les instruments
+                // d'un compte (contrairement à Tradovate). On remonte :
+                //   1) L'instrument par défaut configuré dans l'Add-On
+                //   2) Les instruments des positions ouvertes (déjà tradés)
+                //   3) L'instrument actuellement suivi (subscribedInstrument)
+                // L'utilisateur peut toujours saisir un instrument libre dans le formulaire.
+                JArray instrumentsArr = new JArray();
+                HashSet<string> seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Instrument par défaut en premier
+                if (!string.IsNullOrWhiteSpace(Config.DefaultInstrument) && seen.Add(Config.DefaultInstrument))
+                    instrumentsArr.Add(Config.DefaultInstrument);
+
+                // Instrument suivi (subscribedInstrument)
+                string subName = CurrentInstrumentName;
+                if (!string.IsNullOrWhiteSpace(subName) && seen.Add(subName))
+                    instrumentsArr.Add(subName);
+
+                // Instruments des positions ouvertes sur le compte sélectionné
+                Account selAcc = GetSelectedAccount();
+                if (selAcc != null)
+                {
+                    try
+                    {
+                        foreach (var pos in selAcc.Positions)
+                        {
+                            if (pos.MarketPosition == MarketPosition.Flat) continue;
+                            string iname = pos.Instrument.FullName;
+                            if (!string.IsNullOrWhiteSpace(iname) && seen.Add(iname))
+                                instrumentsArr.Add(iname);
+                        }
+                    }
+                    catch { }
+                }
+
+                // ── Infos de l'instrument actif (tick size, point value, dernier prix) ──
+                // Nécessaires pour le calcul du Money Management côté frontend
+                // (nb contrats = risque $ / (distance SL en points × point value))
+                double instrTickSize = TickSize;
+                double instrPointValue = PointValue;
+                double instrLastPrice = lastTick;
+                string instrName = CurrentInstrumentName ?? "";
+
                 JObject obj = new JObject
                 {
-                    ["timestamp"] = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
+                    ["timestamp"]        = DateTime.UtcNow.ToString("yyyy-MM-ddTHH:mm:ssZ"),
                     ["selected_account"] = Config.SelectedAccountName,
-                    ["accounts"] = accountsArr,
-                    ["connections"] = connectionsArr
+                    ["accounts"]         = accountsArr,
+                    ["connections"]      = connectionsArr,
+                    ["instruments"]      = instrumentsArr,
+                    ["active_instrument"] = new JObject
+                    {
+                        ["name"]        = instrName,
+                        ["tick_size"]   = instrTickSize,
+                        ["point_value"] = instrPointValue,
+                        ["last_price"]  = instrLastPrice
+                    }
                 };
                 File.WriteAllText(accountsStatusFile, obj.ToString(Formatting.None), System.Text.Encoding.UTF8);
             }
