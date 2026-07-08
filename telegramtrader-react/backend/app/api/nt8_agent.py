@@ -410,21 +410,29 @@ async def get_connector_health(session_string: str = Depends(get_session_string)
     last_price = status.get("last_price") or {}
     last_accounts = status.get("last_accounts") or {}
 
-    # NinjaTrader est considéré actif si le prix a été remonté récemment
-    # (le champ last_price est mis à jour à chaque heartbeat par l'agent)
-    nt8_active = connected and bool(last_price)
+    # NinjaTrader est considéré actif si last_price est un dict non-None
+    # (même avec mid=0 : l'Add-On écrit toujours timestamp+instrument+mid).
+    # On accepte aussi last_accounts non-vide comme preuve que NT8 tourne.
+    # Ancienne condition : bool(last_price) → False si dict vide ou None.
+    # Nouvelle condition : last_price is not None (dict présent = NT8 actif)
+    nt8_active = connected and (last_price is not None and status.get("last_price") is not None)
 
     nt8_health = {
         "ok": nt8_active,
         "active": nt8_active,
-        "selected_account": last_accounts.get("selected_account"),
+        "selected_account": last_accounts.get("selected_account") or last_price.get("instrument"),
         "trading_blocked": last_price.get("trading_blocked", False),
         "position_open": last_price.get("position_open", False),
         "balance": last_price.get("account_balance"),
         "daily_pnl": last_price.get("daily_pnl"),
         "message": (
             "NinjaTrader actif ✅" if nt8_active
-            else ("Agent connecté, NinjaTrader non détecté" if connected else "NinjaTrader non joignable")
+            else (
+                "Agent connecté — NinjaTrader non détecté. "
+                "Vérifiez que NT8 est ouvert ET que l'Add-On est compilé (F5). "
+                "Fermez et rouvrez NinjaTrader si nécessaire."
+                if connected else "NinjaTrader non joignable"
+            )
         ),
     }
 
