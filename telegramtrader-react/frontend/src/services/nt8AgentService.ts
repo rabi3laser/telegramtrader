@@ -175,6 +175,24 @@ export const nt8AgentService = {
     window.URL.revokeObjectURL(url)
   },
 
+  // Télécharger l'Add-On NinjaScript TelegramTraderAddOn.cs (multi-comptes,
+  // démarrage automatique) à installer dans Documents\NinjaTrader 8\bin\Custom\AddOns\
+  // puis compiler (F5). Remplace la stratégie V3 pour une utilisation multi-comptes.
+  async downloadAddOn(): Promise<void> {
+    const response = await api.get('/nt8-agent/download-addon', {
+      responseType: 'blob',
+    })
+    const blob = new Blob([response.data], { type: 'text/plain' })
+    const url = window.URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = 'TelegramTraderAddOn.cs'
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    window.URL.revokeObjectURL(url)
+  },
+
   // Générer un code d'appairage court (façon WhatsApp Web) à saisir UNE SEULE
   // FOIS dans l'agent .exe — évite de manipuler le token brut.
   async generatePairingCode(accountName?: string): Promise<PairingCodeResponse> {

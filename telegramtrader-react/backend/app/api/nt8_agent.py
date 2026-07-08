@@ -30,6 +30,7 @@ AGENT_EXE_PATH = AGENT_DIST_DIR / "TelegramTraderAgent.exe"
 # calibration fusionnés) à installer dans NinjaTrader 8.
 STRATEGY_DIR = Path(__file__).resolve().parent.parent.parent / "nt8_strategy"
 STRATEGY_FILE_PATH = STRATEGY_DIR / "TelegramSignalStrategyV3.cs"
+ADDON_FILE_PATH    = STRATEGY_DIR / "TelegramTraderAddOn.cs"
 
 
 
@@ -156,6 +157,28 @@ async def download_strategy():
         path=str(STRATEGY_FILE_PATH),
         media_type="text/plain",
         filename="TelegramSignalStrategyV3.cs",
+    )
+
+
+@router.get("/download-addon")
+async def download_addon():
+    """
+    Télécharge le fichier NinjaScript TelegramTraderAddOn.cs (Add-On multi-comptes
+    avec démarrage automatique du moteur) à installer dans
+    Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\, PUIS à compiler
+    (Tools → Edit NinjaScript → F5). Remplace la stratégie V3 pour une
+    utilisation multi-comptes sans graphique ouvert.
+    """
+    if not ADDON_FILE_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Le fichier Add-On n'est pas disponible sur ce serveur pour le moment.",
+        )
+    from fastapi.responses import FileResponse
+    return FileResponse(
+        path=str(ADDON_FILE_PATH),
+        media_type="text/plain",
+        filename="TelegramTraderAddOn.cs",
     )
 
 

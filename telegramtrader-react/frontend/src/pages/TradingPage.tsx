@@ -123,6 +123,11 @@ export default function TradingPage() {
       toast.error("Veuillez saisir un prix d'entrée pour un ordre limite")
       return
     }
+    // SL obligatoire : l'Add-On NT8 rejette tout signal sans Stop Loss (raison : sl_manquant)
+    if (!signalForm.stop_loss || parseFloat(signalForm.stop_loss) <= 0) {
+      toast.error('⛔ Stop Loss obligatoire — NinjaTrader rejette les signaux sans SL')
+      return
+    }
     if (sizingMode === 'risk' && (!signalForm.risk_pct || parseFloat(signalForm.risk_pct) <= 0)) {
       toast.error('Veuillez saisir un pourcentage de risque valide')
       return
@@ -385,14 +390,21 @@ export default function TradingPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">SL (optionnel)</label>
+            <label className="block text-sm font-medium mb-1">
+              Stop Loss <span className="text-red-500">*</span>
+              <span className="text-xs font-normal text-gray-400 dark:text-gray-500 ml-1">(obligatoire)</span>
+            </label>
             <input
               type="number"
               step="0.01"
-              className="input w-40"
+              className={`input w-40 ${!signalForm.stop_loss ? 'border-orange-300 dark:border-orange-700' : ''}`}
+              placeholder="Ex: 3280.5"
               value={signalForm.stop_loss}
               onChange={(e) => setSignalForm({ ...signalForm, stop_loss: e.target.value })}
             />
+            <p className="text-xs text-orange-600 dark:text-orange-400 mt-1">
+              NinjaTrader rejette les signaux sans SL — requis pour le calcul du risque et la protection du compte.
+            </p>
           </div>
 
           <div className="border-t border-gray-200 dark:border-gray-700 pt-4">

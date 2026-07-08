@@ -236,6 +236,13 @@ export default function SettingsPage() {
     } catch { toast.error("Erreur lors du téléchargement de la stratégie NinjaTrader.") }
   }
 
+  const handleDownloadAddOn = async () => {
+    try {
+      await nt8AgentService.downloadAddOn()
+      toast.success("Add-On téléchargé ! Copiez-le dans Documents\\NinjaTrader 8\\bin\\Custom\\AddOns\\ puis compilez (F5).")
+    } catch { toast.error("Erreur lors du téléchargement de l'Add-On NinjaTrader.") }
+  }
+
   const handleCopyCode = () => {
     if (pairingCode) { navigator.clipboard.writeText(pairingCode); toast.success('Code copié !') }
   }
@@ -417,9 +424,24 @@ export default function SettingsPage() {
           <button className="btn-primary flex items-center gap-2 text-sm" onClick={handleDownloadExe}>
             <Download className="h-4 w-4" /> Télécharger TelegramTraderAgent.exe
           </button>
-          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadStrategy}>
-            <FileCode className="h-4 w-4" /> Stratégie NinjaScript V3
+          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadAddOn}>
+            <FileCode className="h-4 w-4" /> Add-On NinjaTrader (recommandé)
           </button>
+          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadStrategy}>
+            <FileCode className="h-4 w-4" /> Stratégie V3 (1 compte)
+          </button>
+        </div>
+
+        {/* Note d'installation de l'Add-On */}
+        <div className="flex items-start gap-2 text-xs text-gray-500 dark:text-gray-400 bg-gray-50 dark:bg-gray-800 rounded-lg p-3">
+          <Info className="h-3.5 w-3.5 flex-shrink-0 mt-0.5" />
+          <div>
+            <p><strong>Add-On (recommandé)</strong> : copiez <code>TelegramTraderAddOn.cs</code> dans{' '}
+              <code>Documents\NinjaTrader 8\bin\Custom\AddOns\</code> puis compilez (F5).
+              Démarre automatiquement avec NinjaTrader, supporte plusieurs comptes.</p>
+            <p className="mt-1"><strong>Stratégie V3</strong> : copiez dans{' '}
+              <code>...\Strategies\</code> et appliquez-la sur un graphique. Plus simple mais limitée à 1 compte.</p>
+          </div>
         </div>
 
         {/* Code d'appairage */}
