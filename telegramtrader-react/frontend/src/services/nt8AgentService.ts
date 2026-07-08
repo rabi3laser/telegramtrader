@@ -40,6 +40,27 @@ export interface AccountsStatusResponse {
   accounts_status: AccountsStatus | null
 }
 
+// ── Kill Switch ──────────────────────────────────────────────────────────
+
+export interface KillSwitchState {
+  active: boolean
+  activated_at: number | null
+  reason: string
+}
+
+// ── Historique des actions ────────────────────────────────────────────────
+
+export interface ActionLogEntry {
+  timestamp: number
+  action: string
+  details: Record<string, any>
+}
+
+export interface ActionLogResponse {
+  entries: ActionLogEntry[]
+  count: number
+}
+
 // ── Dashboard de santé du connecteur (amélioration A) ──────────────────
 
 export interface BackendHealth {
@@ -194,6 +215,28 @@ export const nt8AgentService = {
   // Récupérer l'état de santé complet du connecteur NT8 (dashboard de santé)
   async getConnectorHealth(): Promise<ConnectorHealth> {
     const response = await api.get('/nt8-agent/health')
+    return response.data
+  },
+
+  // ── Kill Switch ────────────────────────────────────────────────────────
+
+  // Récupérer l'état du kill switch
+  async getKillSwitch(): Promise<KillSwitchState> {
+    const response = await api.get('/nt8-agent/kill-switch')
+    return response.data
+  },
+
+  // Activer ou désactiver le kill switch
+  async setKillSwitch(active: boolean, reason?: string): Promise<KillSwitchState> {
+    const response = await api.post('/nt8-agent/kill-switch', { active, reason })
+    return response.data
+  },
+
+  // ── Historique des actions ─────────────────────────────────────────────
+
+  // Récupérer l'historique des actions (sélection compte, connexion, kill switch...)
+  async getActionLog(limit = 20): Promise<ActionLogResponse> {
+    const response = await api.get(`/nt8-agent/action-log?limit=${limit}`)
     return response.data
   },
 }

@@ -31,6 +31,8 @@ AGENTS_FILE = DATA_DIR / "nt8_agents.json"
 QUEUES_FILE = DATA_DIR / "nt8_signal_queues.json"
 PAIRING_FILE = DATA_DIR / "nt8_pairing_codes.json"
 COMMAND_QUEUES_FILE = DATA_DIR / "nt8_command_queues.json"
+ACTION_LOG_FILE = DATA_DIR / "nt8_action_log.json"
+KILL_SWITCH_FILE = DATA_DIR / "nt8_kill_switch.json"
 
 # CORRECTIF RACE CONDITIONS : FastAPI est async et peut traiter plusieurs
 # requêtes HTTP concurrentes dans le même processus. Sans verrou, deux
@@ -158,7 +160,15 @@ def _find_key_by_token(token: str) -> Optional[str]:
 # ═══════════════════════════════════════════════════════════════
 
 def push_signal(session_string: str, signal: Dict[str, Any]) -> bool:
-    """Ajoute un signal à la file d'attente de l'agent de l'utilisateur."""
+    """Ajoute un signal à la file d'attente de l'agent de l'utilisateur.
+    Retourne False si l'agent n'existe pas OU si le kill switch est actif."""
+    # Vérification kill switch AVANT d'acquérir le verrou (lecture seule)
+    ks_state = get_kill_switch(session_string)
+    if ks_state.get("active"):
+        # Kill switch actif : on refuse silencieusement le signal
+        # (l'appelant doit vérifier l'état du kill switch et informer l'utilisateur)
+        return False
+
     # Verrou nécessaire : pop_pending_signals() vide la file en même temps que
     # push_signal() pourrait y ajouter un élément — sans verrou, le signal
     # ajouté serait silencieusement écrasé par l'écriture concurrente.
@@ -393,5 +403,94 @@ def get_queue_sizes(session_string: str) -> Dict[str, Any]:
         "signal_queue": len(queues.get(token, [])),
         "command_queue": len(cmd_queues.get(token, [])),
     }
+
+
+# ═══════════════════════════════════════════════════════════════
+# HISTORIQUE DES ACTIONS (log des commandes envoyées depuis l'UI)
+# Permet à l'utilisateur de savoir qui a fait quoi et quand :
+# sélection de compte, connexion/déconnexion, kill switch, etc.
+# ═══════════════════════════════════════════════════════════════
+
+ACTION_LOG_MAX_ENTRIES = 100  # on garde les 100 dernières actions par utilisateur
+
+
+def log_action(session_string: str, action: str, details: Optional[Dict[str, Any]] = None) -> None:
+    """Enregistre une action dans le journal de l'utilisateur.
+    action : ex 'select_account', 'connect_connection', 'kill_switch_on', etc.
+    details : données supplémentaires (nom du compte, connexion, etc.)
+    """
+    with _file_lock:
+        logs = _load_json(ACTION_LOG_FILE)
+        key = _user_key(session_string)
+        user_log = logs.get(key, [])
+        entry = {
+            "timestamp": time.time(),
+            "action": action,
+            "details": details or {},
+        }
+        user_log.append(entry)
+        # Garder seulement les N dernières entrées pour éviter une croissance infinie
+        if len(user_log) > ACTION_LOG_MAX_ENTRIES:
+            user_log = user_log[-ACTION_LOG_MAX_ENTRIES:]
+        logs[key] = user_log
+        _save_json(ACTION_LOG_FILE, logs)
+
+
+def get_action_log(session_string: str, limit: int = 20) -> List[Dict[str, Any]]:
+    """Retourne les dernières actions de l'utilisateur, du plus récent au plus ancien."""
+    logs = _load_json(ACTION_LOG_FILE)
+    key = _user_key(session_string)
+    user_log = logs.get(key, [])
+    # Retourner les `limit` dernières entrées, ordre décroissant (plus récent en premier)
+    return list(reversed(user_log[-limit:]))
+
+
+# ═══════════════════════════════════════════════════════════════
+# KILL SWITCH — "Suspendre le Trading"
+# Permet de bloquer instantanément l'exécution de TOUS les nouveaux
+# signaux pour un utilisateur, sans déconnecter l'agent ni NinjaTrader.
+# L'agent continue de tourner et de faire ses heartbeats, mais
+# push_signal() refuse d'ajouter des signaux à la file tant que le
+# kill switch est actif. Réactivation manuelle obligatoire.
+# ═══════════════════════════════════════════════════════════════
+
+def set_kill_switch(session_string: str, active: bool, reason: Optional[str] = None) -> Dict[str, Any]:
+    """Active ou désactive le kill switch pour l'utilisateur.
+    Quand actif, push_signal() refuse tout nouveau signal.
+    """
+    with _file_lock:
+        ks = _load_json(KILL_SWITCH_FILE)
+        key = _user_key(session_string)
+        if active:
+            ks[key] = {
+                "active": True,
+                "activated_at": time.time(),
+                "reason": reason or "Suspendu manuellement depuis l'application",
+            }
+        else:
+            ks.pop(key, None)
+        _save_json(KILL_SWITCH_FILE, ks)
+
+    # Journaliser l'action
+    log_action(
+        session_string,
+        "kill_switch_on" if active else "kill_switch_off",
+        {"reason": reason} if reason else {},
+    )
+    return {"active": active}
+
+
+def get_kill_switch(session_string: str) -> Dict[str, Any]:
+    """Retourne l'état du kill switch pour l'utilisateur."""
+    ks = _load_json(KILL_SWITCH_FILE)
+    key = _user_key(session_string)
+    entry = ks.get(key)
+    if entry and entry.get("active"):
+        return {
+            "active": True,
+            "activated_at": entry.get("activated_at"),
+            "reason": entry.get("reason", ""),
+        }
+    return {"active": False, "activated_at": None, "reason": ""}
 
 

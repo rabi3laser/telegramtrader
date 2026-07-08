@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Send, Zap, Info, History, Target, Percent } from 'lucide-react'
+import { Send, Zap, Info, History, Target, Percent, AlertCircle } from 'lucide-react'
 import { tradingService } from '../services/tradingService'
 import { MARKETS, type MarketType, type SignalType, type OrderExecutionType, type Signal } from '../types'
 
@@ -22,6 +22,7 @@ export default function TradingPage() {
     risk_pct: '1',
   })
   const [sizingMode, setSizingMode] = useState<SizingMode>('quantity')
+  const [showConfirm, setShowConfirm] = useState(false)
 
   const { data: history, isLoading: historyLoading, isError: historyError } = useQuery({
     queryKey: ['trading', 'history'],
@@ -75,11 +76,88 @@ export default function TradingPage() {
       toast.error('Veuillez saisir un pourcentage de risque valide')
       return
     }
+    // Afficher la modal de confirmation avant d'envoyer l'ordre
+    setShowConfirm(true)
+  }
+
+  const handleConfirmExecute = () => {
+    setShowConfirm(false)
     executeMutation.mutate()
   }
 
+  const market = MARKETS[signalForm.market as keyof typeof MARKETS]
+
   return (
     <div className="space-y-6">
+
+      {/* ── Modal de confirmation avant exécution d'ordre ─────────────────── */}
+      {showConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+          <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700">
+            <div className="flex items-start gap-3 mb-4">
+              <AlertCircle className="h-6 w-6 text-orange-500 flex-shrink-0 mt-0.5" />
+              <div>
+                <h3 className="text-base font-semibold">Confirmer l'exécution du signal</h3>
+                <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
+                  Vous êtes sur le point d'envoyer un ordre réel à NinjaTrader 8.
+                </p>
+              </div>
+            </div>
+            {/* Résumé du signal */}
+            <div className="bg-gray-50 dark:bg-gray-800 rounded-lg p-3 mb-4 text-sm space-y-1">
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Direction</span>
+                <span className={`font-semibold ${signalForm.type === 'BUY' ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`}>
+                  {signalForm.type}
+                </span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Marché</span>
+                <span className="font-medium">{market?.icon} {market?.name ?? signalForm.market}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-gray-500 dark:text-gray-400">Type d'ordre</span>
+                <span className="font-medium">{signalForm.order_type}</span>
+              </div>
+              {signalForm.entry_price && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">Prix d'entrée</span>
+                  <span className="font-mono">{signalForm.entry_price}</span>
+                </div>
+              )}
+              {signalForm.stop_loss && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">Stop Loss</span>
+                  <span className="font-mono text-red-600 dark:text-red-400">{signalForm.stop_loss}</span>
+                </div>
+              )}
+              {signalForm.target_price && (
+                <div className="flex justify-between">
+                  <span className="text-gray-500 dark:text-gray-400">TP1</span>
+                  <span className="font-mono text-green-600 dark:text-green-400">{signalForm.target_price}</span>
+                </div>
+              )}
+              <div className="flex justify-between border-t border-gray-200 dark:border-gray-700 pt-1 mt-1">
+                <span className="text-gray-500 dark:text-gray-400">
+                  {sizingMode === 'quantity' ? 'Quantité' : 'Risque'}
+                </span>
+                <span className="font-semibold">
+                  {sizingMode === 'quantity' ? `${signalForm.quantity} contrat(s)` : `${signalForm.risk_pct}% du capital`}
+                </span>
+              </div>
+            </div>
+            <div className="flex gap-3 justify-end">
+              <button className="btn-secondary text-sm px-4 py-2" onClick={() => setShowConfirm(false)}>
+                Annuler
+              </button>
+              <button className="btn-primary text-sm px-4 py-2 flex items-center gap-2" onClick={handleConfirmExecute}>
+                <Send className="h-4 w-4" /> Confirmer l'envoi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
       <div>
         <h1 className="text-2xl font-bold">Trading</h1>
         <p className="text-gray-500 dark:text-gray-400">

@@ -1,35 +1,150 @@
 import { useState, useEffect } from 'react'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import toast from 'react-hot-toast'
-import { Info, Download, KeyRound, Wifi, WifiOff, Copy, Clock, ChevronDown, ChevronUp, FileCode, Unlink, Landmark, Plug, PlugZap, CheckCircle2, Activity, Server, Monitor, AlertTriangle, Package } from 'lucide-react'
-
+import {
+  Info, Download, KeyRound, Wifi, WifiOff, Copy, Clock, ChevronDown, ChevronUp,
+  FileCode, Unlink, Landmark, Plug, PlugZap, CheckCircle2, Activity, Server,
+  Monitor, AlertTriangle, Package, ShieldOff, ShieldCheck, History, TrendingUp,
+  TrendingDown, X, AlertCircle,
+} from 'lucide-react'
 
 import { nt8AgentService } from '../services/nt8AgentService'
-import type { ConnectorHealth } from '../services/nt8AgentService'
+import type { ConnectorHealth, KillSwitchState, ActionLogEntry } from '../services/nt8AgentService'
 import { useAuthStore } from '../store/authStore'
+
+
+// ── Composant Modal de confirmation générique ──────────────────────────────
+interface ConfirmModalProps {
+  open: boolean
+  title: string
+  message: string
+  confirmLabel: string
+  confirmClass?: string
+  onConfirm: () => void
+  onCancel: () => void
+}
+
+function ConfirmModal({ open, title, message, confirmLabel, confirmClass = 'btn-danger', onConfirm, onCancel }: ConfirmModalProps) {
+  if (!open) return null
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm">
+      <div className="bg-white dark:bg-gray-900 rounded-xl shadow-2xl p-6 max-w-md w-full mx-4 border border-gray-200 dark:border-gray-700">
+        <div className="flex items-start gap-3 mb-4">
+          <AlertCircle className="h-6 w-6 text-orange-500 flex-shrink-0 mt-0.5" />
+          <div>
+            <h3 className="text-base font-semibold">{title}</h3>
+            <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">{message}</p>
+          </div>
+        </div>
+        <div className="flex gap-3 justify-end">
+          <button className="btn-secondary text-sm px-4 py-2" onClick={onCancel}>
+            Annuler
+          </button>
+          <button className={`${confirmClass} text-sm px-4 py-2`} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+
+// ── Libellés lisibles pour les actions du log ──────────────────────────────
+function actionLabel(action: string, details: Record<string, any>): string {
+  switch (action) {
+    case 'select_account':
+      return `Compte activé : ${details.account_name ?? '?'}`
+    case 'connect_connection':
+      return `Connexion établie : ${details.connection_name ?? '?'}`
+    case 'disconnect_connection':
+      return `Connexion coupée : ${details.connection_name ?? '?'}`
+    case 'kill_switch_on':
+      return `⛔ Trading suspendu${details.reason ? ` — ${details.reason}` : ''}`
+    case 'kill_switch_off':
+      return `✅ Trading réactivé`
+    default:
+      return action
+  }
+}
+
+function actionColor(action: string): string {
+  if (action === 'kill_switch_on') return 'text-red-600 dark:text-red-400'
+  if (action === 'kill_switch_off') return 'text-green-600 dark:text-green-400'
+  if (action === 'disconnect_connection') return 'text-orange-600 dark:text-orange-400'
+  if (action === 'connect_connection') return 'text-blue-600 dark:text-blue-400'
+  return 'text-gray-700 dark:text-gray-300'
+}
 
 
 export default function SettingsPage() {
   const { user } = useAuthStore()
   const queryClient = useQueryClient()
 
-  // ── AGENT LOCAL NINJATRADER 8 (100% gratuit, sans CrossTrade) ──────────
+  // ── AGENT LOCAL NINJATRADER 8 ──────────────────────────────────────────
   const [agentAccountName, setAgentAccountName] = useState('')
   const [pairingCode, setPairingCode] = useState<string | null>(null)
   const [pairingExpiresAt, setPairingExpiresAt] = useState<number | null>(null)
   const [pairingCountdown, setPairingCountdown] = useState<string>('')
   const [showAdvanced, setShowAdvanced] = useState(false)
 
+  // ── MODALS DE CONFIRMATION ─────────────────────────────────────────────
+  const [confirmModal, setConfirmModal] = useState<{
+    open: boolean
+    title: string
+    message: string
+    confirmLabel: string
+    confirmClass?: string
+    onConfirm: () => void
+  }>({ open: false, title: '', message: '', confirmLabel: '', onConfirm: () => {} })
+
+  const openConfirm = (opts: Omit<typeof confirmModal, 'open'>) =>
+    setConfirmModal({ ...opts, open: true })
+  const closeConfirm = () =>
+    setConfirmModal(prev => ({ ...prev, open: false }))
+
+  // ── QUERIES ────────────────────────────────────────────────────────────
   const { data: agentStatus, isLoading: agentLoading, isError: agentError } = useQuery({
     queryKey: ['nt8-agent', 'status'],
     queryFn: nt8AgentService.getStatus,
-    refetchInterval: 5000, // rafraîchit le statut de connexion toutes les 5s
-    // Ne pas afficher d'erreur toast automatique — on gère l'état visuellement
-    // dans le rendu pour ne pas spammer l'utilisateur toutes les 5 secondes.
+    refetchInterval: 5000,
     retry: 2,
   })
 
-  // Dès que l'agent devient connecté, on efface le code d'appairage affiché
+  const { data: healthData, isError: healthError } = useQuery<ConnectorHealth>({
+    queryKey: ['nt8-agent', 'health'],
+    queryFn: nt8AgentService.getConnectorHealth,
+    refetchInterval: 5000,
+    enabled: !!agentStatus?.linked,
+    retry: 1,
+  })
+
+  const { data: accountsData, isLoading: accountsLoading, isError: accountsError } = useQuery({
+    queryKey: ['nt8-agent', 'accounts'],
+    queryFn: nt8AgentService.getAccountsStatus,
+    enabled: !!agentStatus?.linked,
+    refetchInterval: 5000,
+    retry: 2,
+  })
+  const accountsStatus = accountsData?.accounts_status
+
+  const { data: killSwitchData, isError: killSwitchError } = useQuery<KillSwitchState>({
+    queryKey: ['nt8-agent', 'kill-switch'],
+    queryFn: nt8AgentService.getKillSwitch,
+    enabled: !!agentStatus?.linked,
+    refetchInterval: 5000,
+    retry: 1,
+  })
+
+  const { data: actionLogData } = useQuery({
+    queryKey: ['nt8-agent', 'action-log'],
+    queryFn: () => nt8AgentService.getActionLog(15),
+    enabled: !!agentStatus?.linked,
+    refetchInterval: 10000,
+    retry: 1,
+  })
+
+  // ── EFFETS ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (agentStatus?.connected && pairingCode) {
       setPairingCode(null)
@@ -37,18 +152,12 @@ export default function SettingsPage() {
     }
   }, [agentStatus?.connected])
 
-  // Compte à rebours d'expiration du code d'appairage affiché
   useEffect(() => {
-    if (!pairingExpiresAt) {
-      setPairingCountdown('')
-      return
-    }
+    if (!pairingExpiresAt) { setPairingCountdown(''); return }
     const interval = setInterval(() => {
       const remaining = Math.max(0, Math.floor(pairingExpiresAt - Date.now() / 1000))
       if (remaining <= 0) {
-        setPairingCode(null)
-        setPairingExpiresAt(null)
-        setPairingCountdown('')
+        setPairingCode(null); setPairingExpiresAt(null); setPairingCountdown('')
         clearInterval(interval)
       } else {
         const m = Math.floor(remaining / 60)
@@ -59,6 +168,7 @@ export default function SettingsPage() {
     return () => clearInterval(interval)
   }, [pairingExpiresAt])
 
+  // ── MUTATIONS ──────────────────────────────────────────────────────────
   const generatePairingCodeMutation = useMutation({
     mutationFn: () => nt8AgentService.generatePairingCode(agentAccountName || undefined),
     onSuccess: (res) => {
@@ -89,32 +199,12 @@ export default function SettingsPage() {
     onError: () => toast.error('Erreur lors de la révocation'),
   })
 
-  // ── DASHBOARD DE SANTÉ DU CONNECTEUR (amélioration A) ──────────────────
-  const { data: healthData, isError: healthError } = useQuery<ConnectorHealth>({
-    queryKey: ['nt8-agent', 'health'],
-    queryFn: nt8AgentService.getConnectorHealth,
-    // Rafraîchissement toutes les 5s — même fréquence que le statut agent
-    // pour que le dashboard reste synchronisé avec l'état réel du connecteur.
-    refetchInterval: 5000,
-    enabled: !!agentStatus?.linked,
-    retry: 1,
-  })
-
-  // ── GESTION DES COMPTES / CONNEXIONS NINJATRADER (pilotage à distance) ──
-  const { data: accountsData, isLoading: accountsLoading, isError: accountsError } = useQuery({
-    queryKey: ['nt8-agent', 'accounts'],
-    queryFn: nt8AgentService.getAccountsStatus,
-    enabled: !!agentStatus?.linked,
-    refetchInterval: 5000,
-    retry: 2,
-  })
-  const accountsStatus = accountsData?.accounts_status
-
   const selectAccountMutation = useMutation({
     mutationFn: (accountName: string) => nt8AgentService.selectAccount(accountName),
     onSuccess: (_data, accountName) => {
       toast.success(`Commande envoyée : sélection du compte ${accountName}`)
       queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
     },
     onError: () => toast.error('Erreur lors de l\'envoi de la commande de sélection de compte'),
   })
@@ -125,52 +215,110 @@ export default function SettingsPage() {
     onSuccess: (_data, vars) => {
       toast.success(`Commande envoyée : ${vars.connect ? 'connexion' : 'déconnexion'} de ${vars.name}`)
       queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'accounts'] })
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
     },
     onError: () => toast.error('Erreur lors de l\'envoi de la commande de connexion'),
   })
 
+  const killSwitchMutation = useMutation({
+    mutationFn: ({ active, reason }: { active: boolean; reason?: string }) =>
+      nt8AgentService.setKillSwitch(active, reason),
+    onSuccess: (_data, vars) => {
+      if (vars.active) {
+        toast.error('⛔ Trading suspendu — aucun signal ne sera exécuté')
+      } else {
+        toast.success('✅ Trading réactivé — les signaux seront à nouveau exécutés')
+      }
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'kill-switch'] })
+      queryClient.invalidateQueries({ queryKey: ['nt8-agent', 'action-log'] })
+    },
+    onError: () => toast.error('Erreur lors du changement d\'état du kill switch'),
+  })
 
+  // ── HANDLERS ───────────────────────────────────────────────────────────
   const handleDownloadScript = async () => {
     try {
       await nt8AgentService.downloadScript()
       toast.success('Script téléchargé ! Lancez-le sur la machine où tourne NinjaTrader 8.')
-    } catch {
-      toast.error('Erreur lors du téléchargement du script')
-    }
+    } catch { toast.error('Erreur lors du téléchargement du script') }
   }
 
   const handleDownloadExe = async () => {
     try {
       await nt8AgentService.downloadExe()
       toast.success("Téléchargement lancé ! Double-cliquez sur TelegramTraderAgent.exe une fois terminé.")
-    } catch {
-      toast.error("L'exécutable n'est pas encore disponible sur ce serveur — utilisez le script Python en attendant.")
-    }
+    } catch { toast.error("L'exécutable n'est pas encore disponible sur ce serveur — utilisez le script Python en attendant.") }
   }
 
   const handleDownloadStrategy = async () => {
     try {
       await nt8AgentService.downloadStrategy()
-      toast.success(
-        "Stratégie téléchargée ! Copiez-la dans Documents\\NinjaTrader 8\\bin\\Custom\\Strategies\\ puis compilez (F5)."
-      )
-    } catch {
-      toast.error("Erreur lors du téléchargement de la stratégie NinjaTrader.")
-    }
+      toast.success("Stratégie téléchargée ! Copiez-la dans Documents\\NinjaTrader 8\\bin\\Custom\\Strategies\\ puis compilez (F5).")
+    } catch { toast.error("Erreur lors du téléchargement de la stratégie NinjaTrader.") }
   }
-
 
   const handleCopyCode = () => {
-    if (pairingCode) {
-      navigator.clipboard.writeText(pairingCode)
-      toast.success('Code copié !')
+    if (pairingCode) { navigator.clipboard.writeText(pairingCode); toast.success('Code copié !') }
+  }
+
+  // Handlers avec confirmation
+  const handleSelectAccount = (accountName: string) => {
+    openConfirm({
+      title: `Activer le compte ${accountName} ?`,
+      message: `Les prochains signaux Telegram seront exécutés sur le compte "${accountName}". Cette action prend effet dans les 5 secondes.`,
+      confirmLabel: 'Activer ce compte',
+      confirmClass: 'btn-primary',
+      onConfirm: () => { closeConfirm(); selectAccountMutation.mutate(accountName) },
+    })
+  }
+
+  const handleToggleConnection = (name: string, connect: boolean) => {
+    openConfirm({
+      title: connect ? `Connecter ${name} ?` : `Déconnecter ${name} ?`,
+      message: connect
+        ? `La connexion "${name}" sera établie dans NinjaTrader 8. Les ordres pourront être passés sur cette connexion.`
+        : `La connexion "${name}" sera coupée dans NinjaTrader 8. Les ordres en cours sur cette connexion pourraient être affectés.`,
+      confirmLabel: connect ? 'Connecter' : 'Déconnecter',
+      confirmClass: connect ? 'btn-primary' : 'btn-danger',
+      onConfirm: () => { closeConfirm(); toggleConnectionMutation.mutate({ name, connect }) },
+    })
+  }
+
+  const handleKillSwitch = (activate: boolean) => {
+    if (activate) {
+      openConfirm({
+        title: '⛔ Suspendre le trading ?',
+        message: 'Aucun nouveau signal Telegram ne sera exécuté sur NinjaTrader 8 tant que le trading est suspendu. L\'agent et NinjaTrader restent connectés. Réactivation manuelle obligatoire.',
+        confirmLabel: 'Suspendre le trading',
+        confirmClass: 'btn-danger',
+        onConfirm: () => { closeConfirm(); killSwitchMutation.mutate({ active: true }) },
+      })
+    } else {
+      openConfirm({
+        title: '✅ Réactiver le trading ?',
+        message: 'Les signaux Telegram seront à nouveau exécutés automatiquement sur NinjaTrader 8.',
+        confirmLabel: 'Réactiver',
+        confirmClass: 'btn-primary',
+        onConfirm: () => { closeConfirm(); killSwitchMutation.mutate({ active: false }) },
+      })
     }
   }
 
-
+  const isKillSwitchActive = killSwitchData?.active === true
 
   return (
     <div className="space-y-6">
+      {/* Modal de confirmation global */}
+      <ConfirmModal
+        open={confirmModal.open}
+        title={confirmModal.title}
+        message={confirmModal.message}
+        confirmLabel={confirmModal.confirmLabel}
+        confirmClass={confirmModal.confirmClass}
+        onConfirm={confirmModal.onConfirm}
+        onCancel={closeConfirm}
+      />
+
       <div>
         <h1 className="text-2xl font-bold">Paramètres</h1>
         <p className="text-gray-500 dark:text-gray-400">Configuration de l'application</p>
@@ -185,6 +333,38 @@ export default function SettingsPage() {
         </div>
       </div>
 
+      {/* ── KILL SWITCH (visible dès que l'agent est lié) ─────────────────── */}
+      {agentStatus?.linked && (
+        <div className={`card border-2 ${isKillSwitchActive ? 'border-red-400 dark:border-red-700 bg-red-50 dark:bg-red-900/10' : 'border-gray-200 dark:border-gray-700'}`}>
+          <div className="flex items-center justify-between gap-4">
+            <div className="flex items-center gap-3">
+              {isKillSwitchActive
+                ? <ShieldOff className="h-6 w-6 text-red-600 dark:text-red-400 flex-shrink-0" />
+                : <ShieldCheck className="h-6 w-6 text-green-600 dark:text-green-400 flex-shrink-0" />
+              }
+              <div>
+                <p className={`font-semibold ${isKillSwitchActive ? 'text-red-700 dark:text-red-300' : 'text-gray-800 dark:text-gray-200'}`}>
+                  {isKillSwitchActive ? '⛔ Trading suspendu' : '✅ Trading actif'}
+                </p>
+                <p className="text-xs text-gray-500 dark:text-gray-400">
+                  {isKillSwitchActive
+                    ? `Suspendu${killSwitchData?.activated_at ? ` le ${new Date(killSwitchData.activated_at * 1000).toLocaleString('fr-FR')}` : ''}. Aucun signal ne sera exécuté.`
+                    : 'Les signaux Telegram sont exécutés normalement sur NinjaTrader 8.'
+                  }
+                </p>
+              </div>
+            </div>
+            <button
+              className={`flex-shrink-0 text-sm px-4 py-2 ${isKillSwitchActive ? 'btn-primary' : 'btn-danger'}`}
+              onClick={() => handleKillSwitch(!isKillSwitchActive)}
+              disabled={killSwitchMutation.isPending}
+            >
+              {killSwitchMutation.isPending ? '...' : isKillSwitchActive ? 'Réactiver' : 'Suspendre'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="card space-y-4 border-2 border-green-200 dark:border-green-900">
         <h2 className="text-lg font-semibold flex items-center gap-2">
           <KeyRound className="h-5 w-5" /> Agent local NinjaTrader 8 (100% gratuit, sans CrossTrade)
@@ -198,204 +378,132 @@ export default function SettingsPage() {
             Python requise, une icône apparaît dans la zone de notification), <strong>3)</strong>{' '}
             saisissez le code d'appairage généré ici. L'agent se connecte automatiquement,
             démarre avec Windows et exécute vos signaux sur NinjaTrader 8 (stratégie{' '}
-            <strong>TelegramSignalStrategyV3</strong>) — sans CrossTrade ni frais mensuels.
+            <strong>TelegramSignalStrategyV3</strong> requise).
           </p>
         </div>
 
-        <div className="flex items-start gap-3 rounded-lg p-3 border-2 border-dashed border-purple-300 dark:border-purple-800 bg-purple-50 dark:bg-purple-900/20">
-          <FileCode className="h-5 w-5 flex-shrink-0 text-purple-700 dark:text-purple-400 mt-0.5" />
-          <div className="flex-1 space-y-2">
-            <p className="text-sm text-purple-800 dark:text-purple-300">
-              <strong>Étape préalable indispensable :</strong> installez d'abord la stratégie
-              NinjaScript dans NinjaTrader 8 — sans elle, l'agent ne peut exécuter aucun signal.
-            </p>
-            <button
-              className="btn-secondary flex items-center gap-2 text-sm"
-              onClick={handleDownloadStrategy}
-            >
-              <Download className="h-4 w-4" />
-              Télécharger la stratégie NinjaTrader (.cs)
-            </button>
-            <p className="text-xs text-purple-700 dark:text-purple-400">
-              Copiez le fichier dans <code>Documents\NinjaTrader 8\bin\Custom\Strategies\</code>,
-              puis dans NinjaTrader : Tools → Edit NinjaScript → Compiler (F5), et appliquez
-              « TelegramSignalStrategyV3 » comme Stratégie sur votre graphique.
-            </p>
+        {agentError && (
+          <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
+            <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
+            <p>Impossible de récupérer le statut de l'agent. Vérifiez que le backend est accessible.</p>
           </div>
+        )}
+
+        {/* Statut de connexion */}
+        {!agentError && agentStatus && (
+          <div className={`flex items-center gap-2 text-sm rounded-lg p-3 ${
+            agentStatus.connected
+              ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-400'
+              : agentStatus.linked
+              ? 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-700 dark:text-yellow-400'
+              : 'bg-gray-50 dark:bg-gray-800 text-gray-600 dark:text-gray-400'
+          }`}>
+            {agentStatus.connected
+              ? <Wifi className="h-4 w-4 flex-shrink-0" />
+              : <WifiOff className="h-4 w-4 flex-shrink-0" />
+            }
+            <span>
+              {agentStatus.connected
+                ? `Agent connecté ✅${agentStatus.account_name ? ` — ${agentStatus.account_name}` : ''}`
+                : agentStatus.linked
+                ? 'Agent lié mais inactif (lancez TelegramTraderAgent.exe sur votre PC)'
+                : 'Aucun agent lié — générez un code d\'appairage ci-dessous'
+              }
+            </span>
+          </div>
+        )}
+
+        {/* Boutons de téléchargement */}
+        <div className="flex flex-wrap gap-2">
+          <button className="btn-primary flex items-center gap-2 text-sm" onClick={handleDownloadExe}>
+            <Download className="h-4 w-4" /> Télécharger TelegramTraderAgent.exe
+          </button>
+          <button className="btn-secondary flex items-center gap-2 text-sm" onClick={handleDownloadStrategy}>
+            <FileCode className="h-4 w-4" /> Stratégie NinjaScript V3
+          </button>
         </div>
 
-        {agentLoading ? (
-          <p className="text-sm text-gray-500 dark:text-gray-400">Chargement...</p>
-        ) : agentError ? (
-          // Erreur API : afficher un message clair plutôt qu'un état trompeur
-          <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
-            <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
-            <p>
-              Impossible de contacter le serveur pour récupérer le statut de l'agent.
-              Vérifiez que le backend est bien démarré.
-            </p>
+        {/* Code d'appairage */}
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            <input
+              type="text"
+              className="input flex-1 text-sm"
+              placeholder="Nom du compte (optionnel)"
+              value={agentAccountName}
+              onChange={(e) => setAgentAccountName(e.target.value)}
+            />
+            <button
+              className="btn-primary text-sm whitespace-nowrap"
+              onClick={() => generatePairingCodeMutation.mutate()}
+              disabled={generatePairingCodeMutation.isPending}
+            >
+              {generatePairingCodeMutation.isPending ? '...' : 'Générer un code'}
+            </button>
           </div>
-        ) : (
-          <div className="space-y-3">
-            {agentStatus?.linked && (
-              <div
-                className={`flex items-center gap-2 text-sm rounded-lg p-3 ${
-                  agentStatus.connected
-                    ? 'text-green-700 dark:text-green-400 bg-green-50 dark:bg-green-900/20'
-                    : 'text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20'
-                }`}
-              >
-                {agentStatus.connected ? (
-                  <Wifi className="h-4 w-4 flex-shrink-0" />
-                ) : (
-                  <WifiOff className="h-4 w-4 flex-shrink-0" />
-                )}
-                <div>
-                  <p className="font-medium">
-                    {agentStatus.connected ? 'Agent connecté ✅' : 'Agent en attente de connexion...'}
-                  </p>
-                  <p className="text-xs">
-                    Token : {agentStatus.token_masked} · Compte : {agentStatus.account_name || '—'}
-                  </p>
-                  {agentStatus.last_price && (
-                    <p className="text-xs mt-1">
-                      Solde : {agentStatus.last_price.balance ?? '—'} · PnL :{' '}
-                      {agentStatus.last_price.pnl ?? '—'} · Position :{' '}
-                      {agentStatus.last_price.position ?? '—'}
-                    </p>
-                  )}
-                </div>
-              </div>
-            )}
 
-            {!agentStatus?.linked && (
-              <div>
-                <label className="block text-sm font-medium mb-1">Nom du compte (optionnel)</label>
-                <input
-                  type="text"
-                  className="input"
-                  placeholder="ex: Sim101, MonCompteReel"
-                  value={agentAccountName}
-                  onChange={(e) => setAgentAccountName(e.target.value)}
-                />
+          {pairingCode && (
+            <div className="flex items-center gap-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3 border border-blue-300 dark:border-blue-700">
+              <div className="flex-1">
+                <p className="text-xs text-blue-600 dark:text-blue-400 mb-1">Code d'appairage (expire dans {pairingCountdown})</p>
+                <p className="text-2xl font-mono font-bold tracking-widest text-blue-800 dark:text-blue-200">{pairingCode}</p>
               </div>
-            )}
-
-            <div className="flex flex-wrap gap-2">
-              <button
-                className="btn-primary flex items-center gap-2 text-sm"
-                onClick={handleDownloadExe}
-              >
-                <Download className="h-4 w-4" />
-                Télécharger l'agent (.exe)
+              <button className="btn-secondary text-xs flex items-center gap-1" onClick={handleCopyCode}>
+                <Copy className="h-3 w-3" /> Copier
               </button>
-              {!agentStatus?.connected && (
-                <button
-                  className="btn-secondary flex items-center gap-2 text-sm"
-                  onClick={() => generatePairingCodeMutation.mutate()}
-                  disabled={generatePairingCodeMutation.isPending}
-                >
-                  <KeyRound className="h-4 w-4" />
-                  {generatePairingCodeMutation.isPending
-                    ? 'Génération...'
-                    : agentStatus?.linked
-                    ? 'Régénérer un code d\'appairage'
-                    : "Générer un code d'appairage"}
-                </button>
-              )}
+            </div>
+          )}
+        </div>
+
+        {/* Section avancée */}
+        <button
+          className="flex items-center gap-1 text-xs text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"
+          onClick={() => setShowAdvanced(!showAdvanced)}
+        >
+          {showAdvanced ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />}
+          Options avancées (token brut / script Python)
+        </button>
+
+        {showAdvanced && (
+          <div className="space-y-2 border-t border-gray-200 dark:border-gray-700 pt-3">
+            <div className="flex flex-wrap gap-2">
+              <button className="btn-secondary flex items-center gap-2 text-xs" onClick={handleDownloadScript}>
+                <Download className="h-3 w-3" /> Script Python (avancé)
+              </button>
+              <button
+                className="btn-secondary flex items-center gap-2 text-xs"
+                onClick={() => generateAgentTokenMutation.mutate()}
+                disabled={generateAgentTokenMutation.isPending}
+              >
+                <KeyRound className="h-3 w-3" /> Régénérer le token
+              </button>
               {agentStatus?.linked && (
                 <button
-                  className="btn-secondary flex items-center gap-2 text-sm"
-                  onClick={handleDownloadScript}
-                >
-                  <Download className="h-4 w-4" />
-                  Script Python (secours)
-                </button>
-              )}
-              {agentStatus?.linked && (
-                <button
-                  className="btn-danger flex items-center gap-2 text-sm"
-                  onClick={() => {
-                    if (confirm('Révoquer cet agent ? Vous devrez régénérer un code et relancer l\'agent.')) {
-                      revokeAgentMutation.mutate()
-                    }
-                  }}
+                  className="btn-danger flex items-center gap-2 text-xs"
+                  onClick={() => openConfirm({
+                    title: 'Révoquer l\'agent ?',
+                    message: 'L\'agent sera déconnecté et son token invalidé. Vous devrez générer un nouveau code d\'appairage pour le reconnecter.',
+                    confirmLabel: 'Révoquer',
+                    onConfirm: () => { closeConfirm(); revokeAgentMutation.mutate() },
+                  })}
                   disabled={revokeAgentMutation.isPending}
                 >
-                  <Unlink className="h-4 w-4" />
-                  Révoquer l'agent
+                  <Unlink className="h-3 w-3" /> Révoquer l'agent
                 </button>
               )}
             </div>
-
-            {pairingCode && (
-              <div className="flex flex-col sm:flex-row sm:items-center gap-3 text-sm bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 border border-blue-200 dark:border-blue-900">
-                <div className="flex-1">
-                  <p className="text-xs text-blue-700 dark:text-blue-400 mb-1">
-                    Saisissez ce code dans la fenêtre de TelegramTraderAgent.exe :
-                  </p>
-                  <div className="flex items-center gap-2">
-                    <span className="text-2xl font-mono font-bold tracking-widest text-blue-800 dark:text-blue-300">
-                      {pairingCode}
-                    </span>
-                    <button
-                      className="btn-secondary flex items-center gap-1 text-xs px-2 py-1"
-                      onClick={handleCopyCode}
-                      title="Copier le code"
-                    >
-                      <Copy className="h-3.5 w-3.5" />
-                      Copier
-                    </button>
-                  </div>
-                </div>
-                {pairingCountdown && (
-                  <div className="flex items-center gap-1 text-xs text-blue-700 dark:text-blue-400 whitespace-nowrap">
-                    <Clock className="h-3.5 w-3.5" />
-                    Expire dans {pairingCountdown}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {!agentStatus?.linked && (
-              <>
-                <button
-                  type="button"
-                  className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 hover:underline"
-                  onClick={() => setShowAdvanced((v) => !v)}
-                >
-                  {showAdvanced ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-                  Solution alternative : script Python (si l'exe est bloqué par un antivirus)
-                </button>
-
-                {showAdvanced && (
-                  <div className="space-y-3 border-t border-gray-200 dark:border-gray-700 pt-3">
-                    <p className="text-xs text-gray-500 dark:text-gray-400">
-                      Générez un token classique et téléchargez un script Python
-                      pré-configuré (aucune dépendance, aucun abonnement) à lancer
-                      manuellement sur la machine où tourne NinjaTrader 8.
-                    </p>
-                    <button
-                      className="btn-secondary flex items-center gap-2 text-sm"
-                      onClick={() => generateAgentTokenMutation.mutate()}
-                      disabled={generateAgentTokenMutation.isPending}
-                    >
-                      <KeyRound className="h-4 w-4" />
-                      {generateAgentTokenMutation.isPending ? 'Génération...' : 'Générer mon token & mon agent'}
-                    </button>
-                  </div>
-                )}
-              </>
+            {agentStatus?.token_masked && (
+              <p className="text-xs text-gray-400 dark:text-gray-500 font-mono">Token : {agentStatus.token_masked}</p>
             )}
           </div>
         )}
       </div>
 
-      {/* ── Dashboard de santé du connecteur ─────────────────────────── */}
+      {/* ── DASHBOARD DE SANTÉ ─────────────────────────────────────────────── */}
       {agentStatus?.linked && (
-        <div className="card space-y-4 border-2 border-gray-200 dark:border-gray-700">
+        <div className="card space-y-4">
           <h2 className="text-lg font-semibold flex items-center gap-2">
-            <Activity className="h-5 w-5" /> Santé du connecteur NT8
+            <Activity className="h-5 w-5" /> État du connecteur
           </h2>
 
           {healthError ? (
@@ -404,71 +512,101 @@ export default function SettingsPage() {
               <p>Impossible de récupérer l'état de santé du connecteur.</p>
             </div>
           ) : healthData ? (
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {/* Maillon 1 : Backend */}
-              <div className={`rounded-lg p-3 border ${healthData.backend.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Server className={`h-4 w-4 ${healthData.backend.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Backend</span>
-                </div>
-                <p className={`text-sm font-medium ${healthData.backend.ok ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
-                  {healthData.backend.message}
-                </p>
-              </div>
-
-              {/* Maillon 2 : Agent Windows */}
-              <div className={`rounded-lg p-3 border ${healthData.agent.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : healthData.agent.linked ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20' : 'border-red-400 bg-red-50 dark:bg-red-900/20'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Wifi className={`h-4 w-4 ${healthData.agent.ok ? 'text-green-600 dark:text-green-400' : healthData.agent.linked ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`} />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Agent</span>
-                </div>
-                <p className={`text-sm font-medium ${healthData.agent.ok ? 'text-green-700 dark:text-green-300' : healthData.agent.linked ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'}`}>
-                  {healthData.agent.message}
-                </p>
-                {healthData.agent.last_heartbeat_age_sec !== null && (
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                    Dernier heartbeat : {healthData.agent.last_heartbeat_age_sec}s
-                  </p>
-                )}
-              </div>
-
-              {/* Maillon 3 : NinjaTrader 8 */}
-              <div className={`rounded-lg p-3 border ${healthData.nt8.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : healthData.agent.connected ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20' : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'}`}>
-                <div className="flex items-center gap-2 mb-1">
-                  <Monitor className={`h-4 w-4 ${healthData.nt8.ok ? 'text-green-600 dark:text-green-400' : healthData.agent.connected ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-400'}`} />
-                  <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">NinjaTrader 8</span>
-                </div>
-                <p className={`text-sm font-medium ${healthData.nt8.ok ? 'text-green-700 dark:text-green-300' : healthData.agent.connected ? 'text-yellow-700 dark:text-yellow-300' : 'text-gray-500 dark:text-gray-400'}`}>
-                  {healthData.nt8.message}
-                </p>
-                {healthData.nt8.ok && (
-                  <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-0.5">
-                    {healthData.nt8.selected_account && <p>Compte : {healthData.nt8.selected_account}</p>}
-                    {healthData.nt8.balance != null && <p>Solde : {healthData.nt8.balance.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</p>}
-                    {healthData.nt8.daily_pnl != null && <p>PnL jour : {healthData.nt8.daily_pnl.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</p>}
-                    {healthData.nt8.trading_blocked && <p className="text-red-600 dark:text-red-400 font-medium">⛔ Trading bloqué</p>}
-                    {healthData.nt8.position_open && <p className="text-blue-600 dark:text-blue-400">📊 Position ouverte</p>}
+            <>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                {/* Backend */}
+                <div className={`rounded-lg p-3 border ${healthData.backend.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : 'border-red-400 bg-red-50 dark:bg-red-900/20'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Server className={`h-4 w-4 ${healthData.backend.ok ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}`} />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Backend</span>
                   </div>
-                )}
+                  <p className={`text-sm font-medium ${healthData.backend.ok ? 'text-green-700 dark:text-green-300' : 'text-red-700 dark:text-red-300'}`}>
+                    {healthData.backend.message}
+                  </p>
+                </div>
+
+                {/* Agent */}
+                <div className={`rounded-lg p-3 border ${healthData.agent.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : healthData.agent.linked ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20' : 'border-red-400 bg-red-50 dark:bg-red-900/20'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Wifi className={`h-4 w-4 ${healthData.agent.ok ? 'text-green-600 dark:text-green-400' : healthData.agent.linked ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`} />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Agent</span>
+                  </div>
+                  <p className={`text-sm font-medium ${healthData.agent.ok ? 'text-green-700 dark:text-green-300' : healthData.agent.linked ? 'text-yellow-700 dark:text-yellow-300' : 'text-red-700 dark:text-red-300'}`}>
+                    {healthData.agent.message}
+                  </p>
+                  {healthData.agent.last_heartbeat_age_sec !== null && (
+                    <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">Dernier heartbeat : {healthData.agent.last_heartbeat_age_sec}s</p>
+                  )}
+                </div>
+
+                {/* NinjaTrader 8 */}
+                <div className={`rounded-lg p-3 border ${healthData.nt8.ok ? 'border-green-400 bg-green-50 dark:bg-green-900/20' : healthData.agent.connected ? 'border-yellow-400 bg-yellow-50 dark:bg-yellow-900/20' : 'border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-800/50'}`}>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Monitor className={`h-4 w-4 ${healthData.nt8.ok ? 'text-green-600 dark:text-green-400' : healthData.agent.connected ? 'text-yellow-600 dark:text-yellow-400' : 'text-gray-400'}`} />
+                    <span className="text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">NinjaTrader 8</span>
+                  </div>
+                  <p className={`text-sm font-medium ${healthData.nt8.ok ? 'text-green-700 dark:text-green-300' : healthData.agent.connected ? 'text-yellow-700 dark:text-yellow-300' : 'text-gray-500 dark:text-gray-400'}`}>
+                    {healthData.nt8.message}
+                  </p>
+                  {healthData.nt8.ok && (
+                    <div className="text-xs text-gray-500 dark:text-gray-400 mt-1 space-y-0.5">
+                      {healthData.nt8.selected_account && <p>Compte : {healthData.nt8.selected_account}</p>}
+                      {healthData.nt8.balance != null && <p>Solde : {healthData.nt8.balance.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $</p>}
+                      {healthData.nt8.daily_pnl != null && (
+                        <p className={healthData.nt8.daily_pnl >= 0 ? 'text-green-600 dark:text-green-400' : 'text-red-600 dark:text-red-400'}>
+                          PnL jour : {healthData.nt8.daily_pnl >= 0 ? '+' : ''}{healthData.nt8.daily_pnl.toLocaleString('fr-FR', { maximumFractionDigits: 2 })} $
+                        </p>
+                      )}
+                      {healthData.nt8.trading_blocked && <p className="text-red-600 dark:text-red-400 font-medium">⛔ Trading bloqué</p>}
+                      {healthData.nt8.position_open && <p className="text-blue-600 dark:text-blue-400">📊 Position ouverte</p>}
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
+
+              {/* Widget P&L temps réel */}
+              {healthData.nt8.ok && healthData.nt8.daily_pnl != null && (
+                <div className={`flex items-center gap-3 rounded-lg p-3 border text-sm ${
+                  healthData.nt8.daily_pnl >= 0
+                    ? 'border-green-300 bg-green-50 dark:bg-green-900/20 dark:border-green-700'
+                    : 'border-red-300 bg-red-50 dark:bg-red-900/20 dark:border-red-700'
+                }`}>
+                  {healthData.nt8.daily_pnl >= 0
+                    ? <TrendingUp className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
+                    : <TrendingDown className="h-5 w-5 text-red-600 dark:text-red-400 flex-shrink-0" />
+                  }
+                  <div>
+                    <p className={`font-semibold ${healthData.nt8.daily_pnl >= 0 ? 'text-green-800 dark:text-green-300' : 'text-red-800 dark:text-red-300'}`}>
+                      P&L journalier : {healthData.nt8.daily_pnl >= 0 ? '+' : ''}{healthData.nt8.daily_pnl.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                    </p>
+                    {healthData.nt8.balance != null && (
+                      <p className="text-xs text-gray-500 dark:text-gray-400">
+                        Solde du compte : {healthData.nt8.balance.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} $
+                        {healthData.nt8.position_open && ' · Position ouverte'}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Files d'attente */}
+              {(healthData.queues.signal_queue > 0 || healthData.queues.command_queue > 0) && (
+                <div className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
+                  <Package className="h-4 w-4 flex-shrink-0 mt-0.5" />
+                  <p>
+                    File d'attente backend : {healthData.queues.signal_queue} signal(s) et {healthData.queues.command_queue} commande(s) en attente.
+                    {!healthData.agent.connected && ' L\'agent semble déconnecté — les signaux seront exécutés dès sa reconnexion.'}
+                  </p>
+                </div>
+              )}
+            </>
           ) : (
             <p className="text-sm text-gray-500 dark:text-gray-400">Chargement de l'état du connecteur...</p>
-          )}
-
-          {/* Files d'attente backend */}
-          {healthData && (healthData.queues.signal_queue > 0 || healthData.queues.command_queue > 0) && (
-            <div className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
-              <Package className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <p>
-                File d'attente backend : {healthData.queues.signal_queue} signal(s) et {healthData.queues.command_queue} commande(s) en attente.
-                {!healthData.agent.connected && ' L\'agent semble déconnecté — les signaux seront exécutés dès sa reconnexion.'}
-              </p>
-            </div>
           )}
         </div>
       )}
 
+      {/* ── COMPTES & CONNEXIONS NINJATRADER ──────────────────────────────── */}
       {agentStatus?.linked && (
         <div className="card space-y-4 border-2 border-blue-200 dark:border-blue-900">
           <h2 className="text-lg font-semibold flex items-center gap-2">
@@ -497,42 +635,30 @@ export default function SettingsPage() {
           ) : accountsError ? (
             <div className="flex items-start gap-2 text-sm text-red-700 dark:text-red-400 bg-red-50 dark:bg-red-900/20 rounded-lg p-3">
               <AlertTriangle className="h-4 w-4 flex-shrink-0 mt-0.5" />
-              <p>
-                Erreur lors de la récupération des comptes NinjaTrader. Vérifiez que le
-                backend est accessible et que l'agent est bien connecté.
-              </p>
+              <p>Erreur lors de la récupération des comptes NinjaTrader. Vérifiez que le backend est accessible et que l'agent est bien connecté.</p>
             </div>
           ) : !accountsStatus ? (
             <div className="flex items-start gap-2 text-sm text-yellow-700 dark:text-yellow-400 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg p-3">
               <Info className="h-4 w-4 flex-shrink-0 mt-0.5" />
               <div>
                 <p className="font-medium">En attente des données NinjaTrader...</p>
-                <p className="text-xs mt-1">
-                  L'Add-On TelegramTraderAddOn doit être ouvert dans NinjaTrader 8
-                  (menu New → TelegramTrader Manager) pour que les comptes et connexions
-                  soient visibles ici.
-                </p>
+                <p className="text-xs mt-1">L'Add-On TelegramTraderAddOn doit être ouvert dans NinjaTrader 8 (menu New → TelegramTrader Manager) pour que les comptes et connexions soient visibles ici.</p>
               </div>
             </div>
           ) : (
             <div className="space-y-5">
-
-              {/* ── Compte actif (résumé en haut) ────────────────────── */}
+              {/* Compte actif */}
               {accountsStatus.selected_account && (
                 <div className="flex items-center gap-3 rounded-lg p-3 bg-green-50 dark:bg-green-900/20 border border-green-400 dark:border-green-700 text-sm">
                   <CheckCircle2 className="h-5 w-5 text-green-600 dark:text-green-400 flex-shrink-0" />
                   <div>
-                    <p className="font-semibold text-green-800 dark:text-green-300">
-                      Compte actif : {accountsStatus.selected_account}
-                    </p>
-                    <p className="text-xs text-green-700 dark:text-green-400">
-                      Les signaux Telegram seront exécutés sur ce compte.
-                    </p>
+                    <p className="font-semibold text-green-800 dark:text-green-300">Compte actif : {accountsStatus.selected_account}</p>
+                    <p className="text-xs text-green-700 dark:text-green-400">Les signaux Telegram seront exécutés sur ce compte.</p>
                   </div>
                 </div>
               )}
 
-              {/* ── Liste des comptes ────────────────────────────────── */}
+              {/* Liste des comptes */}
               <div>
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <Landmark className="h-4 w-4" />
@@ -567,13 +693,11 @@ export default function SettingsPage() {
                           </div>
                           <div className="flex items-center gap-2 flex-shrink-0">
                             {isSelected ? (
-                              <span className="text-xs font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-1 rounded-full">
-                                ✓ Actif
-                              </span>
+                              <span className="text-xs font-semibold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/40 px-2 py-1 rounded-full">✓ Actif</span>
                             ) : (
                               <button
                                 className="btn-primary text-xs px-3 py-1.5"
-                                onClick={() => selectAccountMutation.mutate(acc.name)}
+                                onClick={() => handleSelectAccount(acc.name)}
                                 disabled={selectAccountMutation.isPending}
                                 title={`Activer le compte ${acc.name} pour l'exécution des signaux`}
                               >
@@ -588,7 +712,7 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              {/* ── Liste des connexions ─────────────────────────────── */}
+              {/* Liste des connexions */}
               <div>
                 <h3 className="text-sm font-semibold mb-2 flex items-center gap-2">
                   <Plug className="h-4 w-4" />
@@ -608,11 +732,10 @@ export default function SettingsPage() {
                         }`}
                       >
                         <div className="flex items-center gap-2 min-w-0">
-                          {conn.connected ? (
-                            <PlugZap className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
-                          ) : (
-                            <Plug className="h-4 w-4 text-gray-400 flex-shrink-0" />
-                          )}
+                          {conn.connected
+                            ? <PlugZap className="h-4 w-4 text-green-600 dark:text-green-400 flex-shrink-0" />
+                            : <Plug className="h-4 w-4 text-gray-400 flex-shrink-0" />
+                          }
                           <div className="min-w-0">
                             <p className="font-medium truncate">{conn.name}</p>
                             <p className="text-xs text-gray-500 dark:text-gray-400">{conn.status}</p>
@@ -620,9 +743,7 @@ export default function SettingsPage() {
                         </div>
                         <button
                           className={`text-xs px-3 py-1.5 flex-shrink-0 ${conn.connected ? 'btn-danger' : 'btn-primary'}`}
-                          onClick={() =>
-                            toggleConnectionMutation.mutate({ name: conn.name, connect: !conn.connected })
-                          }
+                          onClick={() => handleToggleConnection(conn.name, !conn.connected)}
                           disabled={toggleConnectionMutation.isPending}
                           title={conn.connected ? `Déconnecter ${conn.name}` : `Connecter ${conn.name}`}
                         >
@@ -646,9 +767,32 @@ export default function SettingsPage() {
         </div>
       )}
 
+      {/* ── HISTORIQUE DES ACTIONS ─────────────────────────────────────────── */}
+      {agentStatus?.linked && actionLogData && actionLogData.count > 0 && (
+        <div className="card space-y-3">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <History className="h-5 w-5" /> Historique des actions
+          </h2>
+          <div className="space-y-1">
+            {actionLogData.entries.map((entry: ActionLogEntry, i: number) => (
+              <div key={i} className="flex items-start gap-3 text-sm py-1.5 border-b border-gray-100 dark:border-gray-800 last:border-0">
+                <span className="text-xs text-gray-400 dark:text-gray-500 whitespace-nowrap mt-0.5 w-32 flex-shrink-0">
+                  {new Date(entry.timestamp * 1000).toLocaleString('fr-FR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}
+                </span>
+                <span className={`flex-1 ${actionColor(entry.action)}`}>
+                  {actionLabel(entry.action, entry.details)}
+                </span>
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-gray-400 dark:text-gray-500">
+            Les 15 dernières actions · Rafraîchissement toutes les 10s
+          </p>
+        </div>
+      )}
+
       <div className="card space-y-2">
         <h2 className="text-lg font-semibold">À propos</h2>
-
         <p className="text-sm text-gray-500 dark:text-gray-400">TelegramTrader v1.0.0</p>
         <p className="text-sm text-gray-500 dark:text-gray-400">
           Migration React + FastAPI depuis l'application Streamlit d'origine.

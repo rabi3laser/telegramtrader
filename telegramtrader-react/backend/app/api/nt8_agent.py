@@ -57,6 +57,11 @@ class PushCommandRequest(BaseModel):
     connection_name: Optional[str] = None
 
 
+class KillSwitchRequest(BaseModel):
+    active: bool
+    reason: Optional[str] = None
+
+
 
 
 @router.post("/token")
@@ -244,6 +249,13 @@ async def push_command(
     success = agent_service.push_command(session_string, data.model_dump())
     if not success:
         raise HTTPException(status_code=400, detail="Aucun agent lié pour cet utilisateur")
+    # Journaliser l'action pour l'historique
+    agent_service.log_action(session_string, data.action, {
+        k: v for k, v in {
+            "account_name": data.account_name,
+            "connection_name": data.connection_name,
+        }.items() if v is not None
+    })
     return {"success": True}
 
 
@@ -260,6 +272,40 @@ async def get_accounts_status(session_string: str = Depends(get_session_string))
         "connected": status.get("connected", False),
         "accounts_status": status.get("last_accounts"),
     }
+
+
+@router.get("/kill-switch")
+async def get_kill_switch(session_string: str = Depends(get_session_string)):
+    """Retourne l'état actuel du kill switch (trading suspendu ou non)."""
+    return agent_service.get_kill_switch(session_string)
+
+
+@router.post("/kill-switch")
+async def set_kill_switch(
+    data: KillSwitchRequest, session_string: str = Depends(get_session_string)
+):
+    """
+    Active ou désactive le kill switch de trading.
+    Quand actif, aucun nouveau signal ne sera exécuté sur NinjaTrader 8.
+    L'agent et NinjaTrader restent connectés — seule l'exécution des signaux
+    est bloquée. Réactivation manuelle obligatoire (sécurité intentionnelle).
+    """
+    result = agent_service.set_kill_switch(session_string, data.active, data.reason)
+    return result
+
+
+@router.get("/action-log")
+async def get_action_log(
+    session_string: str = Depends(get_session_string),
+    limit: int = Query(default=20, ge=1, le=100),
+):
+    """
+    Retourne l'historique des actions effectuées depuis l'application web
+    (sélection de compte, connexion/déconnexion, kill switch...).
+    Utile pour l'audit et le débogage.
+    """
+    entries = agent_service.get_action_log(session_string, limit=limit)
+    return {"entries": entries, "count": len(entries)}
 
 
 @router.get("/health")
